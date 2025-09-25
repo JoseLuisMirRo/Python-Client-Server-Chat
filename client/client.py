@@ -1,6 +1,7 @@
 import socket
 import threading
 import traceback
+import time
 
 # ===============================
 # Cliente de Chat
@@ -20,7 +21,6 @@ class ChatClient:
         - Solicita el nombre de usuario.
         - Establece la conexión con el servidor.
         """
-        import time
         # Solicitar puerto si no se proporciona
         if port == 0:
             port = int(input("Ingrese el puerto del servidor: "))
@@ -32,6 +32,8 @@ class ChatClient:
         self.authenticated = False
         self.running = True
 
+    
+
     def recibir(self):
         """
         Recibe mensajes del servidor de chat.
@@ -39,7 +41,6 @@ class ChatClient:
         - Imprime los mensajes recibidos.
         - Si la conexión se pierde o la autenticación falla, termina el cliente.
         """
-        import time
         while self.running:
             try:
                 mensaje = self.client.recv(1024).decode('utf-8')
@@ -61,7 +62,9 @@ class ChatClient:
                 elif mensaje == 'AUTH_SUCCESS':
                     print("✅ Autenticación exitosa!")
                     self.authenticated = True
+                    
                 else:
+                    # Imprimir mensajes tal cual
                     print(mensaje)
             except Exception as e:
                 print(f"❌ Error al recibir mensaje: {e}")
@@ -80,7 +83,6 @@ class ChatClient:
         - Permite al usuario escribir mensajes y los envía al servidor.
         - Si ocurre un error o se pierde la conexión, termina el cliente.
         """
-        import time
         while self.running:
             try:
                 # Esperar hasta estar autenticado
@@ -107,7 +109,6 @@ class ChatClient:
         - Crea y lanza los hilos para recibir y enviar mensajes.
         - Espera a que el usuario termine o se pierda la conexión.
         """
-        import time
         # Hilo para recibir mensajes
         hilo_recepcion = threading.Thread(target=self.recibir)
         hilo_recepcion.daemon = True

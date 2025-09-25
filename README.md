@@ -5,6 +5,6 @@
 2. Luego, en ventanas separadas, ejecuta los clientes: `python client/client.py`
 
 ## Funcionamiento
-- El servidor escucha conexiones en localhost:55555
+- El servidor arroja el puerto en el que se está corriendo 
 - Cada cliente elige un nickname al conectarse
 - Los mensajes se transmiten a todos los clientes conectados
