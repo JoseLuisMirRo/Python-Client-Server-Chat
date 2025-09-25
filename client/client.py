@@ -17,10 +17,17 @@ class ChatClient:
     def __init__(self, host='localhost', port=0):
         """
         Inicializa el cliente de chat.
+        - Solicita el host/IP del servidor si no se proporciona.
         - Solicita el puerto si no se proporciona.
         - Solicita el nombre de usuario.
         - Establece la conexión con el servidor.
         """
+        # Solicitar host si no se proporciona explícitamente
+        if host in (None, '', 'localhost'):
+            ingresado = input("Ingrese IP o host del servidor (Enter para localhost): ").strip()
+            if ingresado:
+                host = ingresado
+
         # Solicitar puerto si no se proporciona
         if port == 0:
             port = int(input("Ingrese el puerto del servidor: "))

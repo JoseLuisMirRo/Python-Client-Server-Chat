@@ -74,14 +74,38 @@ class ChatServer:
         self.server.listen(max_clients)
         self.port = self.server.getsockname()[1]
 
+        # Detectar IP local para mostrar a los clientes de la misma red
+        self.local_ip = self._descubrir_ip_local()
+
         # Gestión de clientes
         self.clients: dict[socket.socket, str] = {}
         self.thread_pool = ThreadPoolExecutor(max_workers=max_clients, thread_name_prefix="ChatClientThread")
         self.global_lock = threading.Lock()
 
         logging.info(f"🌐 Servidor de chat iniciado en {self.host}:{self.port}")
+        if self.host == '0.0.0.0':
+            logging.info(f"🔗 Conéctate desde otros dispositivos: {self.local_ip}:{self.port}")
         logging.info(f"🔐 Contraseña del servidor: {self.password or 'Sin contraseña'}")
         logging.info(f"📊 Máximo de clientes: {self.max_clients}")
+
+    def _descubrir_ip_local(self) -> str:
+        """Intenta descubrir la IP local preferida para conexiones LAN.
+
+        Método no intrusivo: abre un socket UDP a un destino externo (no envía datos)
+        para obtener la IP de salida. Si falla, recurre al hostname o localhost.
+        """
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                s.connect(('8.8.8.8', 80))
+                return s.getsockname()[0]
+            finally:
+                s.close()
+        except Exception:
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except Exception:
+                return '127.0.0.1'
 
     def broadcast(self, message: bytes, sender: socket.socket | None = None) -> None:
         """Envía un mensaje a todos los clientes excepto al remitente."""
@@ -159,7 +183,11 @@ class ChatServer:
     def iniciar(self) -> None:
         """Inicia el bucle de aceptación de conexiones y delega en el pool de hilos."""
         try:
-            logging.info(f"✅ Esperando conexiones en {self.host}:{self.port}")
+            display_host = self.local_ip if self.host == '0.0.0.0' else self.host
+            if self.host == '0.0.0.0':
+                logging.info(f"✅ Esperando conexiones en {display_host}:{self.port} (escuchando en {self.host})")
+            else:
+                logging.info(f"✅ Esperando conexiones en {display_host}:{self.port}")
             while True:
                 client, address = self.server.accept()
                 self.thread_pool.submit(self.manejar_cliente, client, address)
@@ -174,8 +202,12 @@ class ChatServer:
 
 
 def main() -> None:
-    """Punto de entrada para iniciar el servidor de chat."""
-    server = ChatServer(password="secreto")
+    """Punto de entrada para iniciar el servidor de chat.
+
+    Se configura para escuchar en todas las interfaces (0.0.0.0) y un puerto fijo (5555)
+    para facilitar conexiones desde otros dispositivos en la red local.
+    """
+    server = ChatServer(host="0.0.0.0", port=5555, password="secreto")
     server.iniciar()
 
 
