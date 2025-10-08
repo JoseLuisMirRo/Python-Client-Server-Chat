@@ -1,4 +1,16 @@
-# Cliente-Servidor Chat en Python
+# Cliente-Servidor Chat en Python con Cifrado AES
+
+## Instalación de dependencias
+```bash
+pip install -r requirements.txt
+```
+
+## Características
+- **Cifrado AES-256-GCM**: Todos los mensajes se cifran usando criptografía simétrica AES
+- **Autenticación segura**: Nickname y contraseña se transmiten cifrados
+- **Claves derivadas**: Las claves se derivan de la contraseña del servidor usando PBKDF2
+- **Comunicación segura**: Todos los mensajes del chat están cifrados end-to-end
+- **Autenticación de integridad**: GCM proporciona autenticación además de cifrado
 
 ## Instrucciones (misma máquina)
 1. Primero, ejecuta el servidor:
@@ -7,10 +19,12 @@
 	- `python client/client.py`
 
 ## Funcionamiento
-- El servidor arroja el puerto en el que se está corriendo 
-- Cada cliente elige un nickname al conectarse
-- Existe una contraseña predefinida a nivel código fuente en el servidor
-- Los mensajes se transmiten a todos los clientes conectados
+- El servidor genera una clave AES derivada de la contraseña del servidor
+- Los clientes deben ingresar la misma contraseña para sincronizar las claves
+- El nickname y contraseña se envían cifrados con AES-256-GCM
+- Todos los mensajes del chat se cifran antes de la transmisión
+- Los mensajes se descifran automáticamente al recibirse
+- Cada mensaje incluye su propio nonce para máxima seguridad
 
 ## Conexión desde otros dispositivos (misma red LAN)
 El servidor está configurado para escuchar en todas las interfaces (0.0.0.0) en el puerto fijo 5555.

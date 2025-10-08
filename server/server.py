@@ -8,7 +8,13 @@ import threading
 import traceback
 import logging
 import multiprocessing
+import os
+import json
 from concurrent.futures import ThreadPoolExecutor
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from crypto.aes_crypto import AESCrypto
 
 try:
     from colorama import init as colorama_init
@@ -58,6 +64,10 @@ class ChatServer:
         self.port = port
         self.password = password
         self.max_clients = max_clients
+        
+        # Inicializar cifrado AES
+        self.aes_crypto = AESCrypto()
+        self.inicializar_clave_aes()
 
         # Configurar socket
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -87,6 +97,7 @@ class ChatServer:
             logging.info(f"🔗 Conéctate desde otros dispositivos: {self.local_ip}:{self.port}")
         logging.info(f"🔐 Contraseña del servidor: {self.password or 'Sin contraseña'}")
         logging.info(f"📊 Máximo de clientes: {self.max_clients}")
+        logging.info("🔒 Cifrado AES habilitado")
 
     def _descubrir_ip_local(self) -> str:
         """Intenta descubrir la IP local preferida para conexiones LAN.
@@ -106,6 +117,26 @@ class ChatServer:
                 return socket.gethostbyname(socket.gethostname())
             except Exception:
                 return '127.0.0.1'
+
+    def inicializar_clave_aes(self) -> None:
+        """Inicializa la clave AES del servidor."""
+        key_path = "server_aes_key.key"
+        
+        try:
+            # Intentar cargar clave existente
+            if os.path.exists(key_path):
+                self.aes_crypto.cargar_clave_desde_archivo(key_path)
+                logging.info("✅ Clave AES cargada desde archivo existente")
+            else:
+                # Generar nueva clave usando la contraseña del servidor como seed
+                password = self.password or "default_chat_password"
+                self.aes_crypto.generar_clave_desde_password(password)
+                self.aes_crypto.guardar_clave(key_path)
+                logging.info("✅ Nueva clave AES generada y guardada")
+                
+        except Exception as e:
+            logging.error(f"❌ Error inicializando clave AES: {e}")
+            raise
 
     def broadcast(self, message: bytes, sender: socket.socket | None = None) -> None:
         """Envía un mensaje a todos los clientes excepto al remitente."""
@@ -127,13 +158,15 @@ class ChatServer:
         """Gestiona la sesión de un cliente, incluida la autenticación y mensajería."""
         nickname: str | None = None
         try:
-            # Solicitar nickname
+            # Solicitar nickname (cifrado)
             client.send(b'NICK')
-            nickname = client.recv(1024).decode('utf-8').strip()
+            nickname_cifrado = client.recv(1024)
+            nickname = self.aes_crypto.descifrar_con_nonce_combinado(nickname_cifrado.decode('utf-8'))
 
-            # Solicitar contraseña
+            # Solicitar contraseña (cifrada)
             client.send(b'PASSWORD')
-            recv_password = client.recv(1024).decode('utf-8').strip()
+            password_cifrado = client.recv(1024)
+            recv_password = self.aes_crypto.descifrar_con_nonce_combinado(password_cifrado.decode('utf-8'))
 
             # Validar contraseña
             if recv_password != self.password:
@@ -151,16 +184,26 @@ class ChatServer:
                 self.clients[client] = nickname
 
             logging.info(f"👤 {nickname} se conectó desde {address}")
-            self.broadcast(f'📢 {nickname} se unió al chat!'.encode('utf-8'))
+            mensaje_union = f'📢 {nickname} se unió al chat!'
+            mensaje_union_cifrado = self.aes_crypto.cifrar_con_nonce_combinado(mensaje_union)
+            self.broadcast(mensaje_union_cifrado.encode('utf-8'))
 
             # Bucle principal de mensajes
             while True:
                 data = client.recv(1024)
                 if not data:
                     break
-                decoded = data.decode('utf-8').strip()
-                logging.info(f"💬 {nickname}: {decoded}")
-                self.broadcast(f'👤 {nickname}: {decoded}'.encode('utf-8'), sender=client)
+                
+                # Descifrar mensaje
+                mensaje_cifrado = data.decode('utf-8')
+                mensaje_descifrado = self.aes_crypto.descifrar_con_nonce_combinado(mensaje_cifrado)
+                
+                logging.info(f"💬 {nickname}: {mensaje_descifrado}")
+                
+                # Cifrar mensaje para broadcast
+                mensaje_broadcast = f'👤 {nickname}: {mensaje_descifrado}'
+                mensaje_cifrado_broadcast = self.aes_crypto.cifrar_con_nonce_combinado(mensaje_broadcast)
+                self.broadcast(mensaje_cifrado_broadcast.encode('utf-8'), sender=client)
 
         except Exception as e:
             logging.error(f"❌ Error con {nickname or 'Cliente desconocido'}: {e}")
@@ -178,7 +221,9 @@ class ChatServer:
                 except Exception:
                     pass
                 logging.info(f"🚪 {nickname} se desconectó del chat")
-                self.broadcast(f'📢 {nickname} abandonó el chat'.encode('utf-8'))
+                mensaje_desconexion = f'📢 {nickname} abandonó el chat'
+                mensaje_desconexion_cifrado = self.aes_crypto.cifrar_con_nonce_combinado(mensaje_desconexion)
+                self.broadcast(mensaje_desconexion_cifrado.encode('utf-8'))
 
     def iniciar(self) -> None:
         """Inicia el bucle de aceptación de conexiones y delega en el pool de hilos."""

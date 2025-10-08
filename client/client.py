@@ -2,6 +2,12 @@ import socket
 import threading
 import traceback
 import time
+import os
+import sys
+
+# Agregar el directorio padre al path para importar crypto
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from crypto.aes_crypto import AESCrypto
 
 # ===============================
 # Cliente de Chat
@@ -38,6 +44,17 @@ class ChatClient:
         self.nickname = input("Elija su nombre de usuario: ")
         self.authenticated = False
         self.running = True
+        
+        # Inicializar cifrado AES
+        self.aes_crypto = AESCrypto()
+        self.inicializar_clave_aes()
+
+    def inicializar_clave_aes(self) -> None:
+        """Inicializa la clave AES del cliente usando la contraseña del servidor."""
+        # Usar la contraseña del servidor como base para generar la misma clave
+        # En un escenario real, esto debería ser más seguro
+        password = input("Ingrese la contraseña del servidor para sincronizar cifrado: ")
+        self.aes_crypto.generar_clave_desde_password(password)
 
     
 
@@ -55,12 +72,15 @@ class ChatClient:
                     print("🔌 Conexión cerrada por el servidor.")
                     self.running = False
                     break
+                
                 # Manejo de autenticación
                 if mensaje == 'NICK':
-                    self.client.send(self.nickname.encode('utf-8'))
+                    nickname_cifrado = self.aes_crypto.cifrar_con_nonce_combinado(self.nickname)
+                    self.client.send(nickname_cifrado.encode('utf-8'))
                 elif mensaje == 'PASSWORD':
                     contrasena = input("Ingrese la contraseña del servidor: ")
-                    self.client.send(contrasena.encode('utf-8'))
+                    contrasena_cifrada = self.aes_crypto.cifrar_con_nonce_combinado(contrasena)
+                    self.client.send(contrasena_cifrada.encode('utf-8'))
                 elif mensaje == 'AUTH_FAILED':
                     print("❌ Autenticación fallida. Saliendo...")
                     self.running = False
@@ -71,15 +91,20 @@ class ChatClient:
                     self.authenticated = True
                     
                 else:
-                    # Imprimir mensajes tal cual
-                    print(mensaje)
+                    # Descifrar y mostrar mensajes
+                    try:
+                        mensaje_descifrado = self.aes_crypto.descifrar_con_nonce_combinado(mensaje)
+                        print(mensaje_descifrado)
+                    except Exception:
+                        # Si no se puede descifrar, mostrar tal como viene
+                        print(mensaje)
             except Exception as e:
                 print(f"❌ Error al recibir mensaje: {e}")
                 traceback.print_exc()
                 self.running = False
                 try:
                     self.client.close()
-                except:
+                except Exception:
                     pass
                 break
 
@@ -100,13 +125,16 @@ class ChatClient:
                 mensaje = input()
                 if not self.running:
                     break
-                self.client.send(mensaje.encode('utf-8'))
+                
+                # Cifrar mensaje antes de enviar
+                mensaje_cifrado = self.aes_crypto.cifrar_con_nonce_combinado(mensaje)
+                self.client.send(mensaje_cifrado.encode('utf-8'))
             except Exception as e:
                 print(f"❌ Error al enviar mensaje: {e}")
                 self.running = False
                 try:
                     self.client.close()
-                except:
+                except Exception:
                     pass
                 break
 
