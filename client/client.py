@@ -23,32 +23,110 @@ class ChatClient:
     """
     def __init__(self, host='localhost', port=0):
         """
-        Inicializa el cliente de chat.
-        - Solicita el host/IP del servidor si no se proporciona.
-        - Solicita el puerto si no se proporciona.
-        - Solicita el nombre de usuario.
-        - Establece la conexión con el servidor.
+        Inicializa el cliente de chat con un flujo amigable y descriptivo.
         """
-        # Solicitar host si no se proporciona explícitamente
+        print("\n" + "="*60)
+        print("    🎯 BIENVENIDO AL CHAT SEGURO CON CIFRADO RSA")
+        print("="*60)
+        
+        # ============================================================
+        # PASO 1: Configuración de Conexión
+        # ============================================================
+        print("\n📡 PASO 1: Configuración de Conexión")
+        print("-" * 60)
+        
+        # Solicitar IP
         if host in (None, '', 'localhost'):
-            ingresado = input("Ingrese IP o host del servidor (Enter para localhost): ").strip()
+            print("¿A qué servidor deseas conectarte?")
+            ingresado = input("  → IP del servidor (Enter para localhost): ").strip()
             if ingresado:
                 host = ingresado
-
-        # Solicitar puerto si no se proporciona
+            else:
+                host = 'localhost'
+        
+        print(f"  ✓ Servidor: {host}")
+        
+        # Solicitar puerto
         if port == 0:
-            port = int(input("Ingrese el puerto del servidor: "))
-        # Configurar socket
-        self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect((host, port))
-        # Solicitar nickname
-        self.nickname = input("Elija su nombre de usuario: ")
+            print("\n¿En qué puerto está escuchando el servidor?")
+            port = int(input("  → Puerto (por defecto 5555): ") or "5555")
+        
+        print(f"  ✓ Puerto: {port}")
+        
+        # ============================================================
+        # PASO 2: Configuración de Cifrado
+        # ============================================================
+        print("\n🔐 PASO 2: Configuración de Cifrado RSA")
+        print("-" * 60)
+        print("El cifrado RSA garantiza que tus mensajes sean privados y seguros.")
+        print()
+        
+        # Generar claves del cliente
+        print("  → Generando tu par de claves RSA (pública/privada)...")
+        self.rsa_crypto = RSACrypto()
+        self.rsa_crypto.generar_par_claves()
+        print("  ✓ Tus claves RSA han sido generadas correctamente")
+        print("    • Estas claves solo existen en memoria (no se guardan en disco)")
+        print("    • Se usarán para cifrar/descifrar tus mensajes")
+        
+        # Cargar clave pública del servidor
+        print("\n  → Necesitas la clave pública del servidor para autenticarte")
+        self.server_rsa = RSACrypto()
+        key_path = input("  → Ruta del archivo (Enter para 'server_public_key.pem'): ").strip()
+        if not key_path:
+            key_path = "server_public_key.pem"
+        
+        try:
+            if os.path.exists(key_path):
+                with open(key_path, 'rb') as f:
+                    public_key_pem = f.read()
+                self.server_rsa.cargar_clave_publica(public_key_pem)
+                print(f"  ✓ Clave pública del servidor cargada desde: {key_path}")
+            else:
+                print(f"\n  ✗ Archivo no encontrado: {key_path}")
+                print("    Asegúrate de que el servidor esté ejecutándose.")
+                print("    El servidor genera automáticamente 'server_public_key.pem' al iniciar.")
+                raise FileNotFoundError(f"No se encontró la clave pública en: {key_path}")
+        except Exception as e:
+            print(f"  ✗ Error: {e}")
+            raise
+        
+        # ============================================================
+        # PASO 3: Credenciales
+        # ============================================================
+        print("\n👤 PASO 3: Tus Credenciales")
+        print("-" * 60)
+        
+        # Solicitar contraseña del servidor
+        print("Para conectarte, necesitas conocer la contraseña del servidor.")
+        self.server_password = input("  → Contraseña del servidor: ").strip()
+        
+        # Solicitar nombre de usuario
+        print("\nElige un nombre de usuario para el chat.")
+        self.nickname = input("  → Tu nombre de usuario: ").strip()
+        
+        print(f"\n  ✓ Configurado como: {self.nickname}")
+        
+        # ============================================================
+        # PASO 4: Conectar al servidor
+        # ============================================================
+        print("\n🔌 PASO 4: Estableciendo Conexión")
+        print("-" * 60)
+        print(f"  → Conectando a {host}:{port}...")
+        
+        try:
+            self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.client.connect((host, port))
+            print("  ✓ Conexión TCP establecida")
+            print("  ✓ Iniciando protocolo de cifrado...")
+        except Exception as e:
+            print(f"  ✗ Error de conexión: {e}")
+            raise
+        
         self.authenticated = False
         self.running = True
         
-        # Inicializar cifrado RSA
-        self.rsa_crypto = RSACrypto()
-        self.server_public_key = None
+        print("\n" + "="*60)
 
     
 
@@ -59,49 +137,77 @@ class ChatClient:
         - Imprime los mensajes recibidos.
         - Si la conexión se pierde o la autenticación falla, termina el cliente.
         """
+        buffer = ""
         while self.running:
             try:
-                mensaje = self.client.recv(1024).decode('utf-8')
-                if not mensaje:
+                # Recibir datos y agregarlos al buffer
+                data = self.client.recv(4096)
+                if not data:
                     print("🔌 Conexión cerrada por el servidor.")
                     self.running = False
                     break
-                # Manejo de claves públicas
-                if mensaje == 'PUBLIC_KEY':
-                    # Recibir tamaño de la clave
-                    size_bytes = self.client.recv(4)
-                    size = int.from_bytes(size_bytes, 'big')
+                
+                buffer += data.decode('utf-8')
+                
+                # Procesar todos los mensajes completos en el buffer
+                while '\n' in buffer:
+                    mensaje, buffer = buffer.split('\n', 1)
+                    mensaje = mensaje.strip()
                     
-                    # Recibir clave pública
-                    public_key_pem = self.client.recv(size)
-                    self.rsa_crypto.cargar_clave_publica(public_key_pem)
-                    print("🔒 Clave pública del servidor recibida")
+                    if not mensaje:
+                        continue
                     
-                # Manejo de autenticación
-                elif mensaje == 'NICK':
-                    nickname_cifrado = self.rsa_crypto.cifrar(self.nickname)
-                    self.client.send(nickname_cifrado.encode('utf-8'))
-                elif mensaje == 'PASSWORD':
-                    contrasena = input("Ingrese la contraseña del servidor: ")
-                    contrasena_cifrada = self.rsa_crypto.cifrar(contrasena)
-                    self.client.send(contrasena_cifrada.encode('utf-8'))
-                elif mensaje == 'AUTH_FAILED':
-                    print("❌ Autenticación fallida. Saliendo...")
-                    self.running = False
-                    self.client.close()
-                    break
-                elif mensaje == 'AUTH_SUCCESS':
-                    print("✅ Autenticación exitosa!")
-                    self.authenticated = True
+                    # Manejo de confirmación de clave pública
+                    if mensaje == 'PUBLIC_KEY_READY':
+                        print("🔒 Servidor listo para autenticación cifrada")
                     
-                else:
-                    # Descifrar y mostrar mensajes
-                    try:
-                        mensaje_descifrado = self.rsa_crypto.descifrar(mensaje)
-                        print(mensaje_descifrado)
-                    except Exception:
-                        # Si no se puede descifrar, mostrar tal como viene
-                        print(mensaje)
+                    # Enviar nuestra clave pública al servidor
+                    elif mensaje == 'CLIENT_PUBLIC_KEY':
+                        import base64
+                        from cryptography.hazmat.primitives import serialization
+                        # Serializar nuestra clave pública
+                        my_public_key_pem = self.rsa_crypto.public_key.public_bytes(
+                            encoding=serialization.Encoding.PEM,
+                            format=serialization.PublicFormat.SubjectPublicKeyInfo
+                        )
+                        # Enviar en base64
+                        my_public_key_b64 = base64.b64encode(my_public_key_pem).decode('utf-8')
+                        self.client.send(f'{my_public_key_b64}\n'.encode('utf-8'))
+                        print("🔑 Tu clave pública enviada al servidor")
+                    
+                    # Manejo de autenticación (cifrar con clave pública del SERVIDOR)
+                    elif mensaje == 'NICK':
+                        print("  → Enviando nombre de usuario cifrado...")
+                        nickname_cifrado = self.server_rsa.cifrar(self.nickname)
+                        self.client.send(nickname_cifrado.encode('utf-8'))
+                    elif mensaje == 'PASSWORD':
+                        print("  → Enviando contraseña cifrada...")
+                        contrasena_cifrada = self.server_rsa.cifrar(self.server_password)
+                        self.client.send(contrasena_cifrada.encode('utf-8'))
+                    elif mensaje == 'AUTH_FAILED':
+                        print("❌ Autenticación fallida. Saliendo...")
+                        self.running = False
+                        self.client.close()
+                        break
+                    elif mensaje == 'AUTH_SUCCESS':
+                        print("\n" + "="*60)
+                        print("  ✅ ¡AUTENTICACIÓN EXITOSA!")
+                        print("="*60)
+                        print("\n💬 Ya puedes escribir mensajes.")
+                        print("   • Escribe tu mensaje y presiona Enter para enviarlo")
+                        print("   • Todos los mensajes están cifrados con RSA")
+                        print("   • Presiona Ctrl+C para salir\n")
+                        print("-" * 60 + "\n")
+                        self.authenticated = True
+                        
+                    else:
+                        # Descifrar mensajes de broadcast con NUESTRA clave privada
+                        try:
+                            mensaje_descifrado = self.rsa_crypto.descifrar(mensaje)
+                            print(mensaje_descifrado)
+                        except Exception as e:
+                            # Si no se puede descifrar, mostrar tal como viene
+                            print(f"[Sin cifrar] {mensaje}")
             except Exception as e:
                 print(f"❌ Error al recibir mensaje: {e}")
                 traceback.print_exc()
@@ -130,8 +236,8 @@ class ChatClient:
                 if not self.running:
                     break
                 
-                # Cifrar mensaje antes de enviar
-                mensaje_cifrado = self.rsa_crypto.cifrar(mensaje)
+                # Cifrar mensaje con la clave pública del servidor
+                mensaje_cifrado = self.server_rsa.cifrar(mensaje)
                 self.client.send(mensaje_cifrado.encode('utf-8'))
             except Exception as e:
                 print(f"❌ Error al enviar mensaje: {e}")

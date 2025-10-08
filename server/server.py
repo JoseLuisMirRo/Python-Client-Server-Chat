@@ -11,6 +11,7 @@ import multiprocessing
 import os
 import json
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crypto.rsa_crypto import RSACrypto
@@ -57,7 +58,7 @@ class ChatServer:
         Args:
             host: Dirección donde escuchar.
             port: Puerto (0 para asignación automática del SO).
-            password: Contraseña requerida para clientes.
+            password: Contraseña requerida para.
             max_clients: Límite de clientes simultáneos.
         """
         self.host = host
@@ -87,8 +88,8 @@ class ChatServer:
         # Detectar IP local para mostrar a los clientes de la misma red
         self.local_ip = self._descubrir_ip_local()
 
-        # Gestión de clientes
-        self.clients: dict[socket.socket, str] = {}
+        # Gestión de clientes - guardar nickname y clave pública de cada cliente
+        self.clients: dict[socket.socket, tuple[str, bytes]] = {}  # {socket: (nickname, public_key_pem)}
         self.thread_pool = ThreadPoolExecutor(max_workers=max_clients, thread_name_prefix="ChatClientThread")
         self.global_lock = threading.Lock()
 
@@ -96,7 +97,6 @@ class ChatServer:
         if self.host == '0.0.0.0':
             logging.info(f"🔗 Conéctate desde otros dispositivos: {self.local_ip}:{self.port}")
         logging.info(f"🔐 Contraseña del servidor: {self.password or 'Sin contraseña'}")
-        logging.info(f"📊 Máximo de clientes: {self.max_clients}")
         logging.info("🔒 Cifrado RSA habilitado")
 
     def _descubrir_ip_local(self) -> str:
@@ -138,18 +138,25 @@ class ChatServer:
             logging.error(f"❌ Error inicializando claves RSA: {e}")
             raise
 
-    def broadcast(self, message: bytes, sender: socket.socket | None = None) -> None:
-        """Envía un mensaje a todos los clientes excepto al remitente."""
+    def broadcast(self, message: str, sender: socket.socket | None = None) -> None:
+        """Envía un mensaje cifrado a todos los clientes excepto al remitente."""
         try:
             with self.global_lock:
-                clients_copy = list(self.clients.keys())
-            for client in clients_copy:
+                clients_copy = dict(self.clients)  # Copia de {socket: (nickname, public_key_pem)}
+            
+            for client, (nickname, public_key_pem) in clients_copy.items():
                 if client is sender:
                     continue
                 try:
-                    client.send(message)
+                    # Crear RSACrypto temporal para este cliente
+                    client_rsa = RSACrypto()
+                    client_rsa.cargar_clave_publica(public_key_pem)
+                    
+                    # Cifrar mensaje con la clave pública del cliente
+                    mensaje_cifrado = client_rsa.cifrar(message)
+                    client.send(f'{mensaje_cifrado}\n'.encode('utf-8'))
                 except Exception as e:
-                    logging.error(f"❌ Error enviando mensaje: {e}")
+                    logging.error(f"❌ Error enviando mensaje a {nickname}: {e}")
                     self.desconectar_cliente(client)
         except Exception as e:
             logging.error(f"❌ Error en broadcast: {e}")
@@ -158,46 +165,46 @@ class ChatServer:
         """Gestiona la sesión de un cliente, incluida la autenticación y mensajería."""
         nickname: str | None = None
         try:
-            # Enviar clave pública al cliente
-            public_key_pem = self.rsa_crypto.public_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
+            # Informar al cliente sobre la clave pública
+            client.send(b'PUBLIC_KEY_READY\n')
             
-            # Enviar comando para indicar que viene la clave pública
-            client.send(b'PUBLIC_KEY')
-            client.send(len(public_key_pem).to_bytes(4, 'big'))
-            client.send(public_key_pem)
+            # Solicitar clave pública del cliente
+            client.send(b'CLIENT_PUBLIC_KEY\n')
+            client_public_key_data = client.recv(4096)
+            import base64
+            client_public_key_pem = base64.b64decode(client_public_key_data.decode('utf-8').strip())
+            logging.info("Clave pública del cliente recibida")
             
             # Solicitar nickname (cifrado)
-            client.send(b'NICK')
-            nickname_cifrado = client.recv(4096)  # Aumentado para RSA
+            client.send(b'NICK\n')
+            nickname_cifrado = client.recv(4096)
             nickname = self.rsa_crypto.descifrar(nickname_cifrado.decode('utf-8'))
 
             # Solicitar contraseña (cifrada)
-            client.send(b'PASSWORD')
-            password_cifrado = client.recv(4096)  # Aumentado para RSA
+            client.send(b'PASSWORD\n')
+            password_cifrado = client.recv(4096)
             recv_password = self.rsa_crypto.descifrar(password_cifrado.decode('utf-8'))
 
             # Validar contraseña
             if recv_password != self.password:
-                client.send(b'AUTH_FAILED')
+                client.send(b'AUTH_FAILED\n')
                 client.close()
                 return
 
             # Registrar y confirmar
-            client.send(b'AUTH_SUCCESS')
+            client.send(b'AUTH_SUCCESS\n')
             with self.global_lock:
                 if len(self.clients) >= self.max_clients:
                     client.send(b'SERVIDOR_LLENO')
                     client.close()
                     return
-                self.clients[client] = nickname
+                # Guardar nickname Y clave pública del cliente
+                self.clients[client] = (nickname, client_public_key_pem)
 
             logging.info(f"👤 {nickname} se conectó desde {address}")
             mensaje_union = f'📢 {nickname} se unió al chat!'
-            mensaje_union_cifrado = self.rsa_crypto.cifrar(mensaje_union)
-            self.broadcast(mensaje_union_cifrado.encode('utf-8'))
+            # Broadcast cifrado con la clave pública de cada cliente
+            self.broadcast(mensaje_union, sender=None)
 
             # Bucle principal de mensajes
             while True:
@@ -211,10 +218,9 @@ class ChatServer:
                 
                 logging.info(f"💬 {nickname}: {mensaje_descifrado}")
                 
-                # Cifrar mensaje para broadcast
+                # Broadcast cifrado para cada cliente con su clave pública
                 mensaje_broadcast = f'👤 {nickname}: {mensaje_descifrado}'
-                mensaje_cifrado_broadcast = self.rsa_crypto.cifrar(mensaje_broadcast)
-                self.broadcast(mensaje_cifrado_broadcast.encode('utf-8'), sender=client)
+                self.broadcast(mensaje_broadcast, sender=client)
 
         except Exception as e:
             logging.error(f"❌ Error con {nickname or 'Cliente desconocido'}: {e}")
@@ -226,15 +232,15 @@ class ChatServer:
         """Desconecta un cliente y notifica al resto."""
         with self.global_lock:
             if client in self.clients:
-                nickname = self.clients.pop(client)
+                nickname, _ = self.clients.pop(client)
                 try:
                     client.close()
                 except Exception:
                     pass
                 logging.info(f"🚪 {nickname} se desconectó del chat")
                 mensaje_desconexion = f'📢 {nickname} abandonó el chat'
-                mensaje_desconexion_cifrado = self.rsa_crypto.cifrar(mensaje_desconexion)
-                self.broadcast(mensaje_desconexion_cifrado.encode('utf-8'))
+                # Broadcast cifrado
+                self.broadcast(mensaje_desconexion, sender=None)
 
     def iniciar(self) -> None:
         """Inicia el bucle de aceptación de conexiones y delega en el pool de hilos."""
