@@ -9,6 +9,7 @@ import traceback
 import logging
 import multiprocessing
 import os
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 
 try:
@@ -137,9 +138,14 @@ class ChatServer:
             # Solicitar contraseña
             client.send(b'PASSWORD')
             recv_password = client.recv(1024).decode('utf-8').strip()
+            server_password_hash = hashlib.sha256(self.password.encode()).hexdigest()
 
-            # Validar contraseña
-            if recv_password != self.password:
+            # Comprobado de hash opcional — (eliminar en producción)
+            print(f"[DEBUG-PRINT] Hash recibido: {recv_password}")
+            print(f"[DEBUG-PRINT] Hash esperado: {server_password_hash}")
+
+            # Validar contraseña con hash (SHA-256)
+            if recv_password != server_password_hash:
                 client.send(b'AUTH_FAILED')
                 client.close()
                 return

@@ -2,6 +2,8 @@ import socket
 import threading
 import traceback
 import time
+import hashlib
+
 
 # ===============================
 # Cliente de Chat
@@ -60,7 +62,9 @@ class ChatClient:
                     self.client.send(self.nickname.encode('utf-8'))
                 elif mensaje == 'PASSWORD':
                     contrasena = input("Ingrese la contraseña del servidor: ")
-                    self.client.send(contrasena.encode('utf-8'))
+                    # Generar hash antes de enviar
+                    hashed = hashlib.sha256(contrasena.encode()).hexdigest()
+                    self.client.send(hashed.strip().encode('utf-8'))
                 elif mensaje == 'AUTH_FAILED':
                     print("❌ Autenticación fallida. Saliendo...")
                     self.running = False
