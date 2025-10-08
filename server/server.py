@@ -8,6 +8,8 @@ import threading
 import traceback
 import logging
 import multiprocessing
+import os
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 
 try:
@@ -20,9 +22,11 @@ except Exception:
 # Aumentar límite de threads (opcional)
 threading.stack_size(67108864)  # 64MB de stack por thread
 
-# Método de inicio seguro para multiprocessing
+# Método de inicio seguro para multiprocessing (ahora compatible con todos los SO)
 try:
-    multiprocessing.set_start_method('fork')
+    if hasattr(multiprocessing, "set_start_method"):
+        metodo = "fork" if hasattr(os, "fork") else "spawn"
+        multiprocessing.set_start_method(metodo, force=True)
 except RuntimeError:
     # Ya fue establecido en otro lugar; ignorar
     pass
@@ -134,9 +138,14 @@ class ChatServer:
             # Solicitar contraseña
             client.send(b'PASSWORD')
             recv_password = client.recv(1024).decode('utf-8').strip()
+            server_password_hash = hashlib.sha256(self.password.encode()).hexdigest()
 
-            # Validar contraseña
-            if recv_password != self.password:
+            # Comprobado de hash opcional — (eliminar en producción)
+            print(f"[DEBUG-PRINT] Hash recibido: {recv_password}")
+            print(f"[DEBUG-PRINT] Hash esperado: {server_password_hash}")
+
+            # Validar contraseña con hash (SHA-256)
+            if recv_password != server_password_hash:
                 client.send(b'AUTH_FAILED')
                 client.close()
                 return
