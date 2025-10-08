@@ -8,6 +8,7 @@ import threading
 import traceback
 import logging
 import multiprocessing
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 try:
@@ -20,9 +21,11 @@ except Exception:
 # Aumentar límite de threads (opcional)
 threading.stack_size(67108864)  # 64MB de stack por thread
 
-# Método de inicio seguro para multiprocessing
+# Método de inicio seguro para multiprocessing (ahora compatible con todos los SO)
 try:
-    multiprocessing.set_start_method('fork')
+    if hasattr(multiprocessing, "set_start_method"):
+        metodo = "fork" if hasattr(os, "fork") else "spawn"
+        multiprocessing.set_start_method(metodo, force=True)
 except RuntimeError:
     # Ya fue establecido en otro lugar; ignorar
     pass
