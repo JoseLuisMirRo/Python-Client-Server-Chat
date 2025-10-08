@@ -1,4 +1,15 @@
-# Cliente-Servidor Chat en Python
+# Cliente-Servidor Chat en Python con Cifrado RSA
+
+## Instalación de dependencias
+```bash
+pip install -r requirements.txt
+```
+
+## Características
+- **Cifrado RSA**: Todos los mensajes se cifran usando criptografía asimétrica RSA
+- **Autenticación segura**: Nickname y contraseña se transmiten cifrados
+- **Claves automáticas**: El servidor genera automáticamente un par de claves RSA
+- **Comunicación segura**: Todos los mensajes del chat están cifrados end-to-end
 
 ## Instrucciones (misma máquina)
 1. Primero, ejecuta el servidor:
@@ -7,10 +18,11 @@
 	- `python client/client.py`
 
 ## Funcionamiento
-- El servidor arroja el puerto en el que se está corriendo 
-- Cada cliente elige un nickname al conectarse
-- Existe una contraseña predefinida a nivel código fuente en el servidor
-- Los mensajes se transmiten a todos los clientes conectados
+- El servidor genera automáticamente un par de claves RSA al iniciar
+- Cada cliente recibe la clave pública del servidor al conectarse
+- El nickname y contraseña se envían cifrados con RSA
+- Todos los mensajes del chat se cifran antes de la transmisión
+- Los mensajes se descifran automáticamente al recibirse
 
 ## Conexión desde otros dispositivos (misma red LAN)
 El servidor está configurado para escuchar en todas las interfaces (0.0.0.0) en el puerto fijo 5555.

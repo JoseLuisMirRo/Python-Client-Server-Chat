@@ -8,7 +8,13 @@ import threading
 import traceback
 import logging
 import multiprocessing
+import os
+import json
+import sys
 from concurrent.futures import ThreadPoolExecutor
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from crypto.rsa_crypto import RSACrypto
+from cryptography.hazmat.primitives import serialization
 
 try:
     from colorama import init as colorama_init
@@ -58,6 +64,10 @@ class ChatServer:
         self.port = port
         self.password = password
         self.max_clients = max_clients
+        
+        # Inicializar cifrado RSA
+        self.rsa_crypto = RSACrypto()
+        self.inicializar_claves_rsa()
 
         # Configurar socket
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -87,6 +97,7 @@ class ChatServer:
             logging.info(f"🔗 Conéctate desde otros dispositivos: {self.local_ip}:{self.port}")
         logging.info(f"🔐 Contraseña del servidor: {self.password or 'Sin contraseña'}")
         logging.info(f"📊 Máximo de clientes: {self.max_clients}")
+        logging.info("🔒 Cifrado RSA habilitado")
 
     def _descubrir_ip_local(self) -> str:
         """Intenta descubrir la IP local preferida para conexiones LAN.
@@ -106,6 +117,26 @@ class ChatServer:
                 return socket.gethostbyname(socket.gethostname())
             except Exception:
                 return '127.0.0.1'
+
+    def inicializar_claves_rsa(self) -> None:
+        """Inicializa las claves RSA del servidor."""
+        private_key_path = "server_private_key.pem"
+        public_key_path = "server_public_key.pem"
+        
+        try:
+            # Intentar cargar claves existentes
+            if os.path.exists(private_key_path) and os.path.exists(public_key_path):
+                self.rsa_crypto.cargar_claves_desde_archivo(private_key_path, public_key_path)
+                logging.info("✅ Claves RSA cargadas desde archivos existentes")
+            else:
+                # Generar nuevas claves
+                self.rsa_crypto.generar_par_claves()
+                self.rsa_crypto.guardar_claves(private_key_path, public_key_path)
+                logging.info("✅ Nuevas claves RSA generadas y guardadas")
+                
+        except Exception as e:
+            logging.error(f"❌ Error inicializando claves RSA: {e}")
+            raise
 
     def broadcast(self, message: bytes, sender: socket.socket | None = None) -> None:
         """Envía un mensaje a todos los clientes excepto al remitente."""
@@ -127,13 +158,26 @@ class ChatServer:
         """Gestiona la sesión de un cliente, incluida la autenticación y mensajería."""
         nickname: str | None = None
         try:
-            # Solicitar nickname
+            # Enviar clave pública al cliente
+            public_key_pem = self.rsa_crypto.public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            )
+            
+            # Enviar comando para indicar que viene la clave pública
+            client.send(b'PUBLIC_KEY')
+            client.send(len(public_key_pem).to_bytes(4, 'big'))
+            client.send(public_key_pem)
+            
+            # Solicitar nickname (cifrado)
             client.send(b'NICK')
-            nickname = client.recv(1024).decode('utf-8').strip()
+            nickname_cifrado = client.recv(4096)  # Aumentado para RSA
+            nickname = self.rsa_crypto.descifrar(nickname_cifrado.decode('utf-8'))
 
-            # Solicitar contraseña
+            # Solicitar contraseña (cifrada)
             client.send(b'PASSWORD')
-            recv_password = client.recv(1024).decode('utf-8').strip()
+            password_cifrado = client.recv(4096)  # Aumentado para RSA
+            recv_password = self.rsa_crypto.descifrar(password_cifrado.decode('utf-8'))
 
             # Validar contraseña
             if recv_password != self.password:
@@ -151,16 +195,26 @@ class ChatServer:
                 self.clients[client] = nickname
 
             logging.info(f"👤 {nickname} se conectó desde {address}")
-            self.broadcast(f'📢 {nickname} se unió al chat!'.encode('utf-8'))
+            mensaje_union = f'📢 {nickname} se unió al chat!'
+            mensaje_union_cifrado = self.rsa_crypto.cifrar(mensaje_union)
+            self.broadcast(mensaje_union_cifrado.encode('utf-8'))
 
             # Bucle principal de mensajes
             while True:
-                data = client.recv(1024)
+                data = client.recv(4096)  # Aumentado para RSA
                 if not data:
                     break
-                decoded = data.decode('utf-8').strip()
-                logging.info(f"💬 {nickname}: {decoded}")
-                self.broadcast(f'👤 {nickname}: {decoded}'.encode('utf-8'), sender=client)
+                
+                # Descifrar mensaje
+                mensaje_cifrado = data.decode('utf-8')
+                mensaje_descifrado = self.rsa_crypto.descifrar(mensaje_cifrado)
+                
+                logging.info(f"💬 {nickname}: {mensaje_descifrado}")
+                
+                # Cifrar mensaje para broadcast
+                mensaje_broadcast = f'👤 {nickname}: {mensaje_descifrado}'
+                mensaje_cifrado_broadcast = self.rsa_crypto.cifrar(mensaje_broadcast)
+                self.broadcast(mensaje_cifrado_broadcast.encode('utf-8'), sender=client)
 
         except Exception as e:
             logging.error(f"❌ Error con {nickname or 'Cliente desconocido'}: {e}")
@@ -178,7 +232,9 @@ class ChatServer:
                 except Exception:
                     pass
                 logging.info(f"🚪 {nickname} se desconectó del chat")
-                self.broadcast(f'📢 {nickname} abandonó el chat'.encode('utf-8'))
+                mensaje_desconexion = f'📢 {nickname} abandonó el chat'
+                mensaje_desconexion_cifrado = self.rsa_crypto.cifrar(mensaje_desconexion)
+                self.broadcast(mensaje_desconexion_cifrado.encode('utf-8'))
 
     def iniciar(self) -> None:
         """Inicia el bucle de aceptación de conexiones y delega en el pool de hilos."""

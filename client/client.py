@@ -2,6 +2,13 @@ import socket
 import threading
 import traceback
 import time
+import os
+import sys
+
+# Agregar el directorio padre al path para importar crypto
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from crypto.rsa_crypto import RSACrypto
+from cryptography.hazmat.primitives import serialization
 
 # ===============================
 # Cliente de Chat
@@ -38,6 +45,10 @@ class ChatClient:
         self.nickname = input("Elija su nombre de usuario: ")
         self.authenticated = False
         self.running = True
+        
+        # Inicializar cifrado RSA
+        self.rsa_crypto = RSACrypto()
+        self.server_public_key = None
 
     
 
@@ -55,12 +66,25 @@ class ChatClient:
                     print("🔌 Conexión cerrada por el servidor.")
                     self.running = False
                     break
+                # Manejo de claves públicas
+                if mensaje == 'PUBLIC_KEY':
+                    # Recibir tamaño de la clave
+                    size_bytes = self.client.recv(4)
+                    size = int.from_bytes(size_bytes, 'big')
+                    
+                    # Recibir clave pública
+                    public_key_pem = self.client.recv(size)
+                    self.rsa_crypto.cargar_clave_publica(public_key_pem)
+                    print("🔒 Clave pública del servidor recibida")
+                    
                 # Manejo de autenticación
-                if mensaje == 'NICK':
-                    self.client.send(self.nickname.encode('utf-8'))
+                elif mensaje == 'NICK':
+                    nickname_cifrado = self.rsa_crypto.cifrar(self.nickname)
+                    self.client.send(nickname_cifrado.encode('utf-8'))
                 elif mensaje == 'PASSWORD':
                     contrasena = input("Ingrese la contraseña del servidor: ")
-                    self.client.send(contrasena.encode('utf-8'))
+                    contrasena_cifrada = self.rsa_crypto.cifrar(contrasena)
+                    self.client.send(contrasena_cifrada.encode('utf-8'))
                 elif mensaje == 'AUTH_FAILED':
                     print("❌ Autenticación fallida. Saliendo...")
                     self.running = False
@@ -71,8 +95,13 @@ class ChatClient:
                     self.authenticated = True
                     
                 else:
-                    # Imprimir mensajes tal cual
-                    print(mensaje)
+                    # Descifrar y mostrar mensajes
+                    try:
+                        mensaje_descifrado = self.rsa_crypto.descifrar(mensaje)
+                        print(mensaje_descifrado)
+                    except Exception:
+                        # Si no se puede descifrar, mostrar tal como viene
+                        print(mensaje)
             except Exception as e:
                 print(f"❌ Error al recibir mensaje: {e}")
                 traceback.print_exc()
@@ -100,7 +129,10 @@ class ChatClient:
                 mensaje = input()
                 if not self.running:
                     break
-                self.client.send(mensaje.encode('utf-8'))
+                
+                # Cifrar mensaje antes de enviar
+                mensaje_cifrado = self.rsa_crypto.cifrar(mensaje)
+                self.client.send(mensaje_cifrado.encode('utf-8'))
             except Exception as e:
                 print(f"❌ Error al enviar mensaje: {e}")
                 self.running = False
