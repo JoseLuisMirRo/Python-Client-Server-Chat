@@ -96,8 +96,7 @@ class ChatServer:
         if self.host == '0.0.0.0':
             logging.info(f"🔗 Conéctate desde otros dispositivos: {self.local_ip}:{self.port}")
         logging.info(f"🔐 Contraseña del servidor: {self.password or 'Sin contraseña'}")
-        logging.info(f"📊 Máximo de clientes: {self.max_clients}")
-        logging.info("🔒 Cifrado AES habilitado")
+        logging.info("🔒 Cifrado AES-256-GCM habilitado")
 
     def _descubrir_ip_local(self) -> str:
         """Intenta descubrir la IP local preferida para conexiones LAN.
@@ -120,19 +119,19 @@ class ChatServer:
 
     def inicializar_clave_aes(self) -> None:
         """Inicializa la clave AES del servidor."""
-        key_path = "server_aes_key.key"
+        key_path = "shared_aes_key.key"
         
         try:
             # Intentar cargar clave existente
             if os.path.exists(key_path):
                 self.aes_crypto.cargar_clave_desde_archivo(key_path)
-                logging.info("✅ Clave AES cargada desde archivo existente")
+                logging.info(f"✅ Clave AES compartida cargada desde {key_path}")
             else:
-                # Generar nueva clave usando la contraseña del servidor como seed
-                password = self.password or "default_chat_password"
-                self.aes_crypto.generar_clave_desde_password(password)
+                # Generar nueva clave aleatoria (más seguro que derivarla de contraseña)
+                self.aes_crypto.generar_clave_aleatoria()
                 self.aes_crypto.guardar_clave(key_path)
-                logging.info("✅ Nueva clave AES generada y guardada")
+                logging.info(f"✅ Nueva clave AES compartida generada y guardada en {key_path}")
+                logging.info(f"   📋 Los clientes necesitan este archivo para conectarse")
                 
         except Exception as e:
             logging.error(f"❌ Error inicializando clave AES: {e}")

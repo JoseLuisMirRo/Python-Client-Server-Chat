@@ -22,39 +22,107 @@ class ChatClient:
     """
     def __init__(self, host='localhost', port=0):
         """
-        Inicializa el cliente de chat.
-        - Solicita el host/IP del servidor si no se proporciona.
-        - Solicita el puerto si no se proporciona.
-        - Solicita el nombre de usuario.
-        - Establece la conexión con el servidor.
+        Inicializa el cliente de chat con cifrado AES simétrico.
         """
-        # Solicitar host si no se proporciona explícitamente
+        print("\n" + "="*60)
+        print("    🎯 BIENVENIDO AL CHAT SEGURO CON CIFRADO AES")
+        print("="*60)
+        
+        # ============================================================
+        # PASO 1: Configuración de Conexión
+        # ============================================================
+        print("\n📡 PASO 1: Configuración de Conexión")
+        print("-" * 60)
+        
+        # Solicitar IP
         if host in (None, '', 'localhost'):
-            ingresado = input("Ingrese IP o host del servidor (Enter para localhost): ").strip()
+            print("¿A qué servidor deseas conectarte?")
+            ingresado = input("  → IP del servidor (Enter para localhost): ").strip()
             if ingresado:
                 host = ingresado
-
-        # Solicitar puerto si no se proporciona
+            else:
+                host = 'localhost'
+        
+        print(f"  ✓ Servidor: {host}")
+        
+        # Solicitar puerto
         if port == 0:
-            port = int(input("Ingrese el puerto del servidor: "))
-        # Configurar socket
-        self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect((host, port))
-        # Solicitar nickname
-        self.nickname = input("Elija su nombre de usuario: ")
+            print("\n¿En qué puerto está escuchando el servidor?")
+            port = int(input("  → Puerto (por defecto 5555): ") or "5555")
+        
+        print(f"  ✓ Puerto: {port}")
+        
+        # ============================================================
+        # PASO 2: Configuración de Cifrado Simétrico
+        # ============================================================
+        print("\n🔐 PASO 2: Configuración de Cifrado AES-256-GCM")
+        print("-" * 60)
+        print("El cifrado AES simétrico es rápido y seguro.")
+        print("Todos los participantes comparten la misma clave secreta.")
+        print()
+        
+        # Cargar clave compartida AES
+        print("  → Necesitas la clave secreta compartida del servidor")
+        self.aes_crypto = AESCrypto()
+        key_path = input("  → Ruta del archivo de clave (Enter para 'shared_aes_key.key'): ").strip()
+        if not key_path:
+            key_path = "shared_aes_key.key"
+        
+        try:
+            if os.path.exists(key_path):
+                self.aes_crypto.cargar_clave_desde_archivo(key_path)
+                print(f"  ✓ Clave AES cargada desde: {key_path}")
+                print("    • Esta clave se usa para cifrar/descifrar todos los mensajes")
+                print("    • Es compartida por todos los usuarios del chat")
+            else:
+                print(f"\n  ✗ Archivo no encontrado: {key_path}")
+                print("    Asegúrate de que el servidor esté ejecutándose.")
+                print("    El servidor genera automáticamente 'shared_aes_key.key' al iniciar.")
+                raise FileNotFoundError(f"No se encontró la clave en: {key_path}")
+        except Exception as e:
+            print(f"  ✗ Error: {e}")
+            raise
+        
+        # ============================================================
+        # PASO 3: Credenciales
+        # ============================================================
+        print("\n👤 PASO 3: Tus Credenciales")
+        print("-" * 60)
+        
+        # Solicitar contraseña del servidor
+        print("Para conectarte, necesitas conocer la contraseña del servidor.")
+        self.server_password = input("  → Contraseña del servidor: ").strip()
+        
+        # Solicitar nombre de usuario
+        print("\nElige un nombre de usuario para el chat.")
+        self.nickname = input("  → Tu nombre de usuario: ").strip()
+        
+        print(f"\n  ✓ Configurado como: {self.nickname}")
+        
+        # ============================================================
+        # PASO 4: Conectar al servidor
+        # ============================================================
+        print("\n🔌 PASO 4: Estableciendo Conexión")
+        print("-" * 60)
+        print(f"  → Conectando a {host}:{port}...")
+        
+        try:
+            self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.client.connect((host, port))
+            print("  ✓ Conexión TCP establecida")
+            print("  ✓ Listo para autenticación cifrada...")
+        except Exception as e:
+            print(f"  ✗ Error de conexión: {e}")
+            raise
+        
         self.authenticated = False
         self.running = True
         
-        # Inicializar cifrado AES
-        self.aes_crypto = AESCrypto()
-        self.inicializar_clave_aes()
+        print("\n" + "="*60)
 
     def inicializar_clave_aes(self) -> None:
-        """Inicializa la clave AES del cliente usando la contraseña del servidor."""
-        # Usar la contraseña del servidor como base para generar la misma clave
-        # En un escenario real, esto debería ser más seguro
-        password = input("Ingrese la contraseña del servidor para sincronizar cifrado: ")
-        self.aes_crypto.generar_clave_desde_password(password)
+        """Método obsoleto - la inicialización ahora se hace en __init__"""
+        pass
 
     
 
@@ -75,11 +143,12 @@ class ChatClient:
                 
                 # Manejo de autenticación
                 if mensaje == 'NICK':
+                    print("  → Enviando nombre de usuario cifrado...")
                     nickname_cifrado = self.aes_crypto.cifrar_con_nonce_combinado(self.nickname)
                     self.client.send(nickname_cifrado.encode('utf-8'))
                 elif mensaje == 'PASSWORD':
-                    contrasena = input("Ingrese la contraseña del servidor: ")
-                    contrasena_cifrada = self.aes_crypto.cifrar_con_nonce_combinado(contrasena)
+                    print("  → Enviando contraseña cifrada...")
+                    contrasena_cifrada = self.aes_crypto.cifrar_con_nonce_combinado(self.server_password)
                     self.client.send(contrasena_cifrada.encode('utf-8'))
                 elif mensaje == 'AUTH_FAILED':
                     print("❌ Autenticación fallida. Saliendo...")
@@ -87,7 +156,14 @@ class ChatClient:
                     self.client.close()
                     break
                 elif mensaje == 'AUTH_SUCCESS':
-                    print("✅ Autenticación exitosa!")
+                    print("\n" + "="*60)
+                    print("  ✅ ¡AUTENTICACIÓN EXITOSA!")
+                    print("="*60)
+                    print("\n💬 Ya puedes escribir mensajes.")
+                    print("   • Escribe tu mensaje y presiona Enter para enviarlo")
+                    print("   • Todos los mensajes están cifrados con AES-256-GCM")
+                    print("   • Presiona Ctrl+C para salir\n")
+                    print("-" * 60 + "\n")
                     self.authenticated = True
                     
                 else:
