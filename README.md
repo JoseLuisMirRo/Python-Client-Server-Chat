@@ -41,3 +41,42 @@ Notas:
 - Asegúrate de que el firewall del servidor permita conexiones entrantes al puerto 5555.
 - Todos los dispositivos deben estar en la misma red (por ejemplo, conectados al mismo router Wi‑Fi).
 - La contraseña del servidor es "secreto" por defecto; puedes cambiarla en `server/server.py`.
+
+## 🔍 Verificación de Integridad (MD5)
+
+**Versión**: 1.0.0 - Rama `cifrado-asimetrico`
+
+Para verificar la integridad de los archivos principales del proyecto, compara los siguientes checksums MD5:
+
+### Checksums de Archivos Principales
+
+```bash
+# Servidor
+MD5 (server/server.py) = f01372c816011aad464ea8501a575b2e
+
+# Cliente
+MD5 (client/client.py) = 085318b57d96c898ea81319dad4c9987
+
+# Módulo de Cifrado RSA
+MD5 (crypto/rsa_crypto.py) = f639f6651b5b0837eda3d67900c10062
+```
+
+### Verificar Checksums
+
+Para verificar manualmente la integridad de los archivos en macOS/Linux:
+
+```bash
+md5 server/server.py client/client.py crypto/rsa_crypto.py
+```
+
+Si los checksums no coinciden, los archivos pueden haber sido modificados. Para restaurar la versión original:
+
+```bash
+git checkout server/server.py
+git checkout client/client.py
+git checkout crypto/rsa_crypto.py
+```
+
+---
+
+**Última actualización**: Octubre 2025
