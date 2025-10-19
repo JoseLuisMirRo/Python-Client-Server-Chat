@@ -4,6 +4,8 @@ import traceback
 import time
 import os
 import sys
+import hashlib
+import json
 
 # Agregar el directorio padre al path para importar crypto
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -236,9 +238,21 @@ class ChatClient:
                 if not self.running:
                     break
                 
+                # Calcular SHA-256 del mensaje en claro
+                try:
+                    mensaje_hash = hashlib.sha256(mensaje.encode('utf-8')).hexdigest()
+                except Exception:
+                    mensaje_hash = ''
+
                 # Cifrar mensaje con la clave pública del servidor
                 mensaje_cifrado = self.server_rsa.cifrar(mensaje)
-                self.client.send(mensaje_cifrado.encode('utf-8'))
+
+                # Enviar un JSON con el ciphertext y el hash para validación en el servidor
+                payload = json.dumps({
+                    'cipher': mensaje_cifrado,
+                    'hash': mensaje_hash
+                })
+                self.client.send(payload.encode('utf-8'))
             except Exception as e:
                 print(f"❌ Error al enviar mensaje: {e}")
                 self.running = False

@@ -27,9 +27,11 @@ except Exception:
 # Aumentar límite de threads (opcional)
 threading.stack_size(67108864)  # 64MB de stack por thread
 
-# Método de inicio seguro para multiprocessing
+# Método de inicio seguro para multiprocessing (ahora compatible con todos los SO)
 try:
-    multiprocessing.set_start_method('fork')
+    if hasattr(multiprocessing, "set_start_method"):
+        metodo = "fork" if hasattr(os, "fork") else "spawn"
+        multiprocessing.set_start_method(metodo, force=True)
 except RuntimeError:
     # Ya fue establecido en otro lugar; ignorar
     pass
@@ -101,7 +103,7 @@ class ChatServer:
 
     def _descubrir_ip_local(self) -> str:
         """Intenta descubrir la IP local preferida para conexiones LAN.
-
+//holaaaaa
         Método no intrusivo: abre un socket UDP a un destino externo (no envía datos)
         para obtener la IP de salida. Si falla, recurre al hostname o localhost.
         """
@@ -211,13 +213,47 @@ class ChatServer:
                 data = client.recv(4096)  # Aumentado para RSA
                 if not data:
                     break
-                
-                # Descifrar mensaje
-                mensaje_cifrado = data.decode('utf-8')
-                mensaje_descifrado = self.rsa_crypto.descifrar(mensaje_cifrado)
-                
+
+                raw = data.decode('utf-8')
+
+                # Intentar parsear como JSON con fields 'cipher' y 'hash'
+                mensaje_descifrado = None
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict) and 'cipher' in parsed and 'hash' in parsed:
+                        cipher = parsed.get('cipher')
+                        recv_hash = parsed.get('hash')
+                        # Descifrar el cipher
+                        try:
+                            mensaje_descifrado = self.rsa_crypto.descifrar(cipher)
+                        except Exception as e:
+                            logging.warning(f"❌ No se pudo descifrar mensaje de {nickname}: {e}")
+                            # Ignorar/descartar este mensaje
+                            continue
+
+                        # Calcular sha256 del mensaje descifrado y comparar
+                        import hashlib
+                        calc_hash = hashlib.sha256(mensaje_descifrado.encode('utf-8')).hexdigest()
+                        if recv_hash != calc_hash:
+                            logging.warning(f"⚠️ Hash inválido de mensaje de {nickname}. Descargando mensaje.")
+                            # Descarta el mensaje sin hacer broadcast
+                            continue
+                    else:
+                        # No es el formato esperado; intentar tratar raw como cipher antiguo
+                        mensaje_descifrado = self.rsa_crypto.descifrar(raw)
+                except json.JSONDecodeError:
+                    # No era JSON, intentar descifrar como antes
+                    try:
+                        mensaje_descifrado = self.rsa_crypto.descifrar(raw)
+                    except Exception as e:
+                        logging.warning(f"❌ No se pudo descifrar mensaje (no JSON) de {nickname}: {e}")
+                        continue
+
+                if mensaje_descifrado is None:
+                    continue
+
                 logging.info(f"💬 {nickname}: {mensaje_descifrado}")
-                
+
                 # Broadcast cifrado para cada cliente con su clave pública
                 mensaje_broadcast = f'👤 {nickname}: {mensaje_descifrado}'
                 self.broadcast(mensaje_broadcast, sender=client)
