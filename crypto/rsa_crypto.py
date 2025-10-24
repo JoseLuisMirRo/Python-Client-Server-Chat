@@ -30,17 +30,14 @@ class RSACrypto:
             Tupla con (clave_privada, clave_publica) en formato PEM
         """
         try:
-            # Generar clave privada
             self.private_key = rsa.generate_private_key(
                 public_exponent=65537,
                 key_size=key_size,
                 backend=self.backend
             )
             
-            # Obtener clave pública
             self.public_key = self.private_key.public_key()
             
-            # Serializar claves
             private_pem = self.private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.PKCS8,
@@ -107,7 +104,6 @@ class RSACrypto:
         try:
             mensaje_bytes = mensaje.encode('utf-8')
             
-            # Cifrar con padding OAEP
             mensaje_cifrado = self.public_key.encrypt(
                 mensaje_bytes,
                 padding.OAEP(
@@ -117,7 +113,6 @@ class RSACrypto:
                 )
             )
             
-            # Codificar en base64 para transmisión
             mensaje_base64 = base64.b64encode(mensaje_cifrado).decode('utf-8')
             
             logging.debug(f"✅ Mensaje cifrado con RSA (tamaño: {len(mensaje_bytes)} bytes)")
@@ -140,10 +135,8 @@ class RSACrypto:
             raise ValueError("No hay clave privada cargada")
         
         try:
-            # Decodificar desde base64
             mensaje_bytes = base64.b64decode(mensaje_cifrado.encode('utf-8'))
             
-            # Descifrar
             mensaje_descifrado = self.private_key.decrypt(
                 mensaje_bytes,
                 padding.OAEP(
@@ -172,7 +165,6 @@ class RSACrypto:
             raise ValueError("No hay claves generadas para guardar")
         
         try:
-            # Guardar clave privada
             with open(private_path, 'wb') as f:
                 f.write(self.private_key.private_bytes(
                     encoding=serialization.Encoding.PEM,
@@ -180,7 +172,6 @@ class RSACrypto:
                     encryption_algorithm=serialization.NoEncryption()
                 ))
             
-            # Guardar clave pública
             with open(public_path, 'wb') as f:
                 f.write(self.public_key.public_bytes(
                     encoding=serialization.Encoding.PEM,
@@ -201,12 +192,10 @@ class RSACrypto:
             public_path: Ruta de la clave pública
         """
         try:
-            # Cargar clave privada
             with open(private_path, 'rb') as f:
                 private_pem = f.read()
                 self.cargar_clave_privada(private_pem)
             
-            # Cargar clave pública
             with open(public_path, 'rb') as f:
                 public_pem = f.read()
                 self.cargar_clave_publica(public_pem)

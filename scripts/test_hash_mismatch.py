@@ -12,7 +12,6 @@ import hashlib
 import sys
 import os
 
-# Añadir directorio raíz del proyecto al path para importar el paquete 'crypto'
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crypto.rsa_crypto import RSACrypto
 
@@ -53,20 +52,16 @@ def simulate_server_processing(server_rsa: RSACrypto, payload_json: str) -> bool
 
 
 if __name__ == '__main__':
-    # Generar par de claves del "servidor"
     server_rsa = RSACrypto()
     private_pem, public_pem = server_rsa.generar_par_claves()
 
-    # Preparar el objeto 'cliente' que cifra con la clave pública del servidor
     client_rsa = RSACrypto()
     client_rsa.cargar_clave_publica(public_pem)
 
     mensaje = "Este es un mensaje de prueba para verificar hashes"
 
-    # Cifrar mensaje como lo haría el cliente
     cipher = client_rsa.cifrar(mensaje)
 
-    # Caso 1: hash correcto
     correct_hash = hashlib.sha256(mensaje.encode('utf-8')).hexdigest()
     payload_good = json.dumps({'cipher': cipher, 'hash': correct_hash})
 
@@ -74,8 +69,6 @@ if __name__ == '__main__':
     accepted = simulate_server_processing(server_rsa, payload_good)
     print(f"Resultado: {'ACEPTADO' if accepted else 'DESCARTADO'}\n")
 
-    # Caso 2: hash manipulado (ataque)
-    # Alterar un caracter del hash para simular manipulación
     bad_hash = correct_hash[:-1] + ( '0' if correct_hash[-1] != '0' else '1')
     payload_bad = json.dumps({'cipher': cipher, 'hash': bad_hash})
 
