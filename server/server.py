@@ -216,13 +216,14 @@ class ChatServer:
 
                 raw = data.decode('utf-8')
 
-                # Intentar parsear como JSON con fields 'cipher' y 'hash'
+                # Intentar parsear como JSON con fields 'cipher', 'hash' y 'md5'
                 mensaje_descifrado = None
                 try:
                     parsed = json.loads(raw)
-                    if isinstance(parsed, dict) and 'cipher' in parsed and 'hash' in parsed:
+                    if isinstance(parsed, dict) and 'cipher' in parsed and 'hash' in parsed and 'md5' in parsed:
                         cipher = parsed.get('cipher')
                         recv_hash = parsed.get('hash')
+                        recv_md5 = parsed.get('md5')
                         # Descifrar el cipher
                         try:
                             mensaje_descifrado = self.rsa_crypto.descifrar(cipher)
@@ -231,13 +232,17 @@ class ChatServer:
                             # Ignorar/descartar este mensaje
                             continue
 
-                        # Calcular sha256 del mensaje descifrado y comparar
+                        # Calcular sha256 y md5 del mensaje descifrado y comparar
                         import hashlib
                         calc_hash = hashlib.sha256(mensaje_descifrado.encode('utf-8')).hexdigest()
-                        if recv_hash != calc_hash:
+                        calc_md5 = hashlib.md5(mensaje_descifrado.encode('utf-8')).hexdigest()
+                        if recv_hash != calc_hash or recv_md5 != calc_md5:
                             logging.warning(f"⚠️ Hash inválido de mensaje de {nickname}. Descargando mensaje.")
                             # Descarta el mensaje sin hacer broadcast
                             continue
+                        
+                        # Mostrar MD5 recibido
+                        logging.info(f"🔒 MD5 del mensaje recibido de {nickname}: {recv_md5}")
                     else:
                         # No es el formato esperado; intentar tratar raw como cipher antiguo
                         mensaje_descifrado = self.rsa_crypto.descifrar(raw)

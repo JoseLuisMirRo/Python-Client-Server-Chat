@@ -78,13 +78,25 @@ class ChatClient:
         if not key_path:
             key_path = "server_public_key.pem"
         
+        # Buscar el archivo en múltiples ubicaciones
+        possible_paths = [
+            key_path,  # La ruta proporcionada por el usuario
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), key_path),  # Directorio raíz del proyecto
+            os.path.join(os.path.dirname(__file__), key_path),  # Directorio del cliente
+        ]
+        
+        key_found = False
         try:
-            if os.path.exists(key_path):
-                with open(key_path, 'rb') as f:
-                    public_key_pem = f.read()
-                self.server_rsa.cargar_clave_publica(public_key_pem)
-                print(f"  ✓ Clave pública del servidor cargada desde: {key_path}")
-            else:
+            for path in possible_paths:
+                if os.path.exists(path):
+                    with open(path, 'rb') as f:
+                        public_key_pem = f.read()
+                    self.server_rsa.cargar_clave_publica(public_key_pem)
+                    print(f"  ✓ Clave pública del servidor cargada desde: {path}")
+                    key_found = True
+                    break
+            
+            if not key_found:
                 print(f"\n  ✗ Archivo no encontrado: {key_path}")
                 print("    Asegúrate de que el servidor esté ejecutándose.")
                 print("    El servidor genera automáticamente 'server_public_key.pem' al iniciar.")
@@ -238,19 +250,23 @@ class ChatClient:
                 if not self.running:
                     break
                 
-                # Calcular SHA-256 del mensaje en claro
+                # Calcular SHA-256 y MD5 del mensaje en claro
                 try:
                     mensaje_hash = hashlib.sha256(mensaje.encode('utf-8')).hexdigest()
+                    mensaje_md5 = hashlib.md5(mensaje.encode('utf-8')).hexdigest()
+                    print(f"\n🔒 MD5 del mensaje enviado: {mensaje_md5}")
                 except Exception:
                     mensaje_hash = ''
+                    mensaje_md5 = ''
 
                 # Cifrar mensaje con la clave pública del servidor
                 mensaje_cifrado = self.server_rsa.cifrar(mensaje)
 
-                # Enviar un JSON con el ciphertext y el hash para validación en el servidor
+                # Enviar un JSON con el ciphertext y los hashes para validación en el servidor
                 payload = json.dumps({
                     'cipher': mensaje_cifrado,
-                    'hash': mensaje_hash
+                    'hash': mensaje_hash,
+                    'md5': mensaje_md5
                 })
                 self.client.send(payload.encode('utf-8'))
             except Exception as e:
