@@ -35,6 +35,28 @@ class Config:
                   str(BASE_DIR / 'server_public_key.pem'))
     )
     
+    # ===== CONFIGURACIÓN SSL/TLS =====
+    # Habilitar SSL/TLS por defecto
+    ENABLE_SSL: bool = os.getenv('CHAT_ENABLE_SSL', 'True').lower() in ('true', '1', 'yes')
+    
+    # Rutas de certificados SSL
+    SSL_CERT_PATH: Path = Path(
+        os.getenv('CHAT_SSL_CERT', 
+                  str(BASE_DIR / 'server_cert.pem'))
+    )
+    SSL_KEY_PATH: Path = Path(
+        os.getenv('CHAT_SSL_KEY', 
+                  str(BASE_DIR / 'server_key.pem'))
+    )
+    
+    # Verificar certificados del cliente (para autenticación mutua)
+    SSL_VERIFY_CLIENT: bool = os.getenv('CHAT_SSL_VERIFY_CLIENT', 'False').lower() in ('true', '1', 'yes')
+    
+    # Ruta del certificado CA para verificar clientes (si SSL_VERIFY_CLIENT está habilitado)
+    SSL_CA_CERT_PATH: Optional[Path] = Path(
+        os.getenv('CHAT_SSL_CA_CERT', '')
+    ) if os.getenv('CHAT_SSL_CA_CERT') else None
+    
     # ===== CONFIGURACIÓN DEL SERVIDOR =====
     MAX_CLIENTS: int = int(os.getenv('CHAT_MAX_CLIENTS', '500'))
     BUFFER_SIZE: int = int(os.getenv('CHAT_BUFFER_SIZE', '4096'))
@@ -60,6 +82,10 @@ class Config:
             'rsa_key_size': cls.RSA_KEY_SIZE,
             'private_key_path': str(cls.SERVER_PRIVATE_KEY_PATH),
             'public_key_path': str(cls.SERVER_PUBLIC_KEY_PATH),
+            'enable_ssl': cls.ENABLE_SSL,
+            'ssl_cert_path': str(cls.SSL_CERT_PATH),
+            'ssl_key_path': str(cls.SSL_KEY_PATH),
+            'ssl_verify_client': cls.SSL_VERIFY_CLIENT,
         }
     
     @classmethod
@@ -88,6 +114,11 @@ class Config:
         print(f"Clave privada del servidor: {cls.SERVER_PRIVATE_KEY_PATH}")
         print(f"Clave pública del servidor: {cls.SERVER_PUBLIC_KEY_PATH}")
         print(f"Contraseña del servidor: {'*' * len(cls.SERVER_PASSWORD)}")
+        print(f"SSL/TLS habilitado: {cls.ENABLE_SSL}")
+        if cls.ENABLE_SSL:
+            print(f"Certificado SSL: {cls.SSL_CERT_PATH}")
+            print(f"Clave SSL: {cls.SSL_KEY_PATH}")
+            print(f"Verificar clientes: {cls.SSL_VERIFY_CLIENT}")
         print("="*60 + "\n")
 
 

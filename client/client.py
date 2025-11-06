@@ -3,6 +3,7 @@ Cliente de Chat con cifrado RSA.
 Permite conectarse a un servidor de chat, autenticarse y enviar/recibir mensajes.
 """
 import socket
+import ssl
 import threading
 import traceback
 import time
@@ -22,14 +23,15 @@ from config import Config
 class ChatClient:
     """Cliente de chat con cifrado RSA."""
     
-    def __init__(self, host: str | None = None, port: int | None = None):
+    def __init__(self, host: str | None = None, port: int | None = None, enable_ssl: bool | None = None):
         """Inicializa el cliente de chat con un flujo amigable."""
         print("\n" + "="*60)
         print("    🎯 BIENVENIDO AL CHAT SEGURO CON CIFRADO RSA")
         print("="*60)
         
+        # Determinar si SSL está habilitado
+        self.enable_ssl = enable_ssl if enable_ssl is not None else Config.ENABLE_SSL
         
-    
         print("\n📡 PASO 1: Configuración de Conexión")
         print("-" * 60)
         
@@ -46,6 +48,9 @@ class ChatClient:
             port = int(port_input) if port_input else Config.DEFAULT_PORT
         
         print(f"  ✓ Puerto: {port}")
+        
+        # Guardar host para el hostname SSL
+        self.server_host = host
         
     
         print("\n🔐 PASO 2: Configuración de Cifrado RSA")
@@ -104,13 +109,31 @@ class ChatClient:
         
         print("\n🔌 PASO 4: Estableciendo Conexión")
         print("-" * 60)
-        print(f"  → Conectando a {host}:{port}...")
+        protocol = "TLS" if self.enable_ssl else "TCP"
+        print(f"  → Conectando a {host}:{port} mediante {protocol}...")
         
         try:
-            self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.client.connect((host, port))
-            print("  ✓ Conexión TCP establecida")
-            print("  ✓ Iniciando protocolo de cifrado...")
+            # Crear socket base
+            base_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            base_socket.connect((host, port))
+            
+            # Envolver con SSL si está habilitado
+            if self.enable_ssl:
+                ssl_context = self._configurar_ssl_cliente()
+                self.client = ssl_context.wrap_socket(base_socket, server_hostname=host)
+                print("  ✓ Conexión TLS establecida")
+                print(f"  ✓ Protocolo: {self.client.version()}")
+                print(f"  ✓ Cifrado: {self.client.cipher()[0]}")
+            else:
+                self.client = base_socket
+                print("  ✓ Conexión TCP establecida")
+                print("  ⚠️  Advertencia: Conexión sin cifrado de transporte SSL/TLS")
+            
+            print("  ✓ Iniciando protocolo de cifrado RSA...")
+        except ssl.SSLError as e:
+            print(f"  ✗ Error SSL/TLS: {e}")
+            print("  💡 Verifica que el servidor tenga certificados válidos")
+            raise
         except Exception as e:
             print(f"  ✗ Error de conexión: {e}")
             raise
@@ -120,6 +143,25 @@ class ChatClient:
         self.buffer_size = Config.BUFFER_SIZE
         
         print("\n" + "="*60)
+
+    def _configurar_ssl_cliente(self) -> ssl.SSLContext:
+        """Configura el contexto SSL/TLS para el cliente."""
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        
+        # Para certificados autofirmados en desarrollo
+        # En producción, deberías validar el certificado correctamente
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        
+        # Configurar versión mínima de TLS
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        
+        # Si deseas usar verificación de certificados en producción:
+        # context.check_hostname = True
+        # context.verify_mode = ssl.CERT_REQUIRED
+        # context.load_verify_locations(cafile='path/to/ca-cert.pem')
+        
+        return context
 
     def recibir(self):
         """Recibe mensajes del servidor de chat."""
@@ -176,7 +218,9 @@ class ChatClient:
                         print("="*60)
                         print("\n💬 Ya puedes escribir mensajes.")
                         print("   • Escribe tu mensaje y presiona Enter para enviarlo")
-                        print(f"   • Todos los mensajes están cifrados con RSA-{Config.RSA_KEY_SIZE}")
+                        print(f"   • Cifrado de aplicación: RSA-{Config.RSA_KEY_SIZE}")
+                        if self.enable_ssl:
+                            print(f"   • Cifrado de transporte: TLS (capa adicional de seguridad)")
                         print("   • Presiona Ctrl+C para salir\n")
                         print("-" * 60 + "\n")
                         self.authenticated = True
@@ -257,14 +301,23 @@ def main():
     """Función principal para iniciar el cliente de chat."""
     import argparse
     
-    parser = argparse.ArgumentParser(description='Cliente de chat con cifrado RSA')
+    parser = argparse.ArgumentParser(description='Cliente de chat con cifrado RSA y SSL/TLS')
     parser.add_argument('--host', type=str, help=f'Host del servidor (default: {Config.DEFAULT_HOST})')
     parser.add_argument('--port', type=int, help=f'Puerto del servidor (default: {Config.DEFAULT_PORT})')
+    parser.add_argument('--enable-ssl', action='store_true', help='Habilitar SSL/TLS')
+    parser.add_argument('--disable-ssl', action='store_true', help='Deshabilitar SSL/TLS')
     
     args = parser.parse_args()
     
+    # Determinar si SSL está habilitado
+    enable_ssl = None
+    if args.enable_ssl:
+        enable_ssl = True
+    elif args.disable_ssl:
+        enable_ssl = False
+    
     try:
-        cliente = ChatClient(host=args.host, port=args.port)
+        cliente = ChatClient(host=args.host, port=args.port, enable_ssl=enable_ssl)
         cliente.iniciar()
     except KeyboardInterrupt:
         print("\n👋 Saliendo del chat...")
