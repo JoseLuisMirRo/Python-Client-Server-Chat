@@ -4,6 +4,7 @@ Mantiene múltiples clientes usando ThreadPoolExecutor y manejo seguro de recurs
 """
 
 import socket
+import ssl
 import threading
 import traceback
 import logging
@@ -51,7 +52,8 @@ class ChatServer:
         host: str | None = None, 
         port: int | None = None, 
         password: str | None = None, 
-        max_clients: int | None = None
+        max_clients: int | None = None,
+        enable_ssl: bool | None = None
     ) -> None:
         """Inicializa el servidor de chat.
 
@@ -60,18 +62,21 @@ class ChatServer:
             port: Puerto (usa Config.DEFAULT_PORT si es None).
             password: Contraseña requerida (usa Config.SERVER_PASSWORD si es None).
             max_clients: Límite de clientes simultáneos (usa Config.MAX_CLIENTS si es None).
+            enable_ssl: Habilitar SSL/TLS (usa Config.ENABLE_SSL si es None).
         """
         self.host = host or Config.DEFAULT_HOST
         self.port = port or Config.DEFAULT_PORT
         self.password = password or Config.SERVER_PASSWORD
         self.max_clients = max_clients or Config.MAX_CLIENTS
         self.buffer_size = Config.BUFFER_SIZE
+        self.enable_ssl = enable_ssl if enable_ssl is not None else Config.ENABLE_SSL
         
         self.rsa_crypto = RSACrypto()
         self.inicializar_claves_rsa()
 
-        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Crear socket base
+        base_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        base_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         try:
             import resource
@@ -79,9 +84,17 @@ class ChatServer:
         except Exception as e:
             logging.warning(f"No se pudo ajustar el límite de archivos: {e}")
 
-        self.server.bind((self.host, self.port))
-        self.server.listen(self.max_clients)
-        self.port = self.server.getsockname()[1]
+        base_server.bind((self.host, self.port))
+        base_server.listen(self.max_clients)
+        self.port = base_server.getsockname()[1]
+
+        # Configurar SSL/TLS si está habilitado
+        if self.enable_ssl:
+            self.ssl_context = self._configurar_ssl()
+            self.server = base_server  # Mantenemos el socket base para accept
+        else:
+            self.server = base_server
+            self.ssl_context = None
 
         self.local_ip = self._descubrir_ip_local()
 
@@ -97,6 +110,55 @@ class ChatServer:
             logging.info(f"🔗 Conéctate desde otros dispositivos: {self.local_ip}:{self.port}")
         logging.info(f"🔐 Contraseña del servidor: {'*' * len(self.password)}")
         logging.info(f"🔒 Cifrado RSA habilitado ({Config.RSA_KEY_SIZE} bits)")
+        if self.enable_ssl:
+            logging.info(f"🔐 SSL/TLS habilitado (TLS 1.2+)")
+        else:
+            logging.warning(f"⚠️  SSL/TLS deshabilitado - conexiones sin cifrado de transporte")
+
+    def _configurar_ssl(self) -> ssl.SSLContext:
+        """Configura el contexto SSL/TLS para el servidor."""
+        try:
+            # Verificar que los certificados existan
+            if not Config.SSL_CERT_PATH.exists():
+                logging.error(f"❌ Certificado SSL no encontrado: {Config.SSL_CERT_PATH}")
+                logging.info("💡 Genera certificados con: python scripts/generate_ssl_certificates.py")
+                raise FileNotFoundError(f"Certificado SSL no encontrado: {Config.SSL_CERT_PATH}")
+            
+            if not Config.SSL_KEY_PATH.exists():
+                logging.error(f"❌ Clave privada SSL no encontrada: {Config.SSL_KEY_PATH}")
+                logging.info("💡 Genera certificados con: python scripts/generate_ssl_certificates.py")
+                raise FileNotFoundError(f"Clave privada SSL no encontrada: {Config.SSL_KEY_PATH}")
+            
+            # Crear contexto SSL
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            
+            # Configurar opciones de seguridad
+            context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1  # Deshabilitar TLS 1.0 y 1.1
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            
+            # Cargar certificado y clave privada
+            context.load_cert_chain(
+                certfile=str(Config.SSL_CERT_PATH),
+                keyfile=str(Config.SSL_KEY_PATH)
+            )
+            
+            # Configurar cifrados seguros
+            context.set_ciphers('ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS')
+            
+            # Configurar verificación de clientes (si está habilitado)
+            if Config.SSL_VERIFY_CLIENT and Config.SSL_CA_CERT_PATH:
+                context.verify_mode = ssl.CERT_REQUIRED
+                context.load_verify_locations(cafile=str(Config.SSL_CA_CERT_PATH))
+                logging.info("🔐 Verificación de certificados de cliente habilitada")
+            else:
+                context.verify_mode = ssl.CERT_NONE
+            
+            logging.debug(f"✅ Contexto SSL configurado correctamente")
+            return context
+            
+        except Exception as e:
+            logging.error(f"❌ Error configurando SSL: {e}")
+            raise
 
     def _descubrir_ip_local(self) -> str:
         """Descubre la IP local para conexiones LAN."""
@@ -253,10 +315,32 @@ class ChatServer:
         """Inicia el bucle de aceptación de conexiones."""
         try:
             display_host = self.local_ip if self.host == '0.0.0.0' else self.host
-            logging.info(f"✅ Esperando conexiones en {display_host}:{self.port}")
+            protocol = "TLS" if self.enable_ssl else "TCP"
+            logging.info(f"✅ Esperando conexiones {protocol} en {display_host}:{self.port}")
             
             while True:
                 client, address = self.server.accept()
+                
+                # Envolver el socket con SSL si está habilitado
+                if self.enable_ssl and self.ssl_context:
+                    try:
+                        client = self.ssl_context.wrap_socket(client, server_side=True)
+                        logging.debug(f"🔐 Conexión SSL establecida con {address}")
+                    except ssl.SSLError as e:
+                        logging.warning(f"⚠️  Error SSL con {address}: {e}")
+                        try:
+                            client.close()
+                        except:
+                            pass
+                        continue
+                    except Exception as e:
+                        logging.error(f"❌ Error envolviendo socket con SSL: {e}")
+                        try:
+                            client.close()
+                        except:
+                            pass
+                        continue
+                
                 self.thread_pool.submit(self.manejar_cliente, client, address)
         except KeyboardInterrupt:
             logging.info("🛑 Servidor detenido")
@@ -275,20 +359,30 @@ def main() -> None:
         return
     
     import argparse
-    parser = argparse.ArgumentParser(description='Servidor de chat con cifrado RSA')
+    parser = argparse.ArgumentParser(description='Servidor de chat con cifrado RSA y SSL/TLS')
     parser.add_argument('--host', type=str, help=f'Host (default: {Config.DEFAULT_HOST})')
     parser.add_argument('--port', type=int, help=f'Puerto (default: {Config.DEFAULT_PORT})')
     parser.add_argument('--password', type=str, help='Contraseña del servidor')
     parser.add_argument('--max-clients', type=int, help=f'Máximo de clientes (default: {Config.MAX_CLIENTS})')
+    parser.add_argument('--enable-ssl', action='store_true', help='Habilitar SSL/TLS')
+    parser.add_argument('--disable-ssl', action='store_true', help='Deshabilitar SSL/TLS')
     parser.add_argument('--show-config', action='store_true', help='Mostrar configuración y salir')
     
     args = parser.parse_args()
+    
+    # Determinar si SSL está habilitado
+    enable_ssl = None
+    if args.enable_ssl:
+        enable_ssl = True
+    elif args.disable_ssl:
+        enable_ssl = False
     
     server = ChatServer(
         host=args.host,
         port=args.port,
         password=args.password,
-        max_clients=args.max_clients
+        max_clients=args.max_clients,
+        enable_ssl=enable_ssl
     )
     server.iniciar()
 
