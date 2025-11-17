@@ -70,6 +70,15 @@ class Config:
     # ===== CONFIGURACIÓN DE CLIENTE =====
     CLIENT_RECEIVE_TIMEOUT: float = float(os.getenv('CHAT_CLIENT_TIMEOUT', '0.1'))
     
+    # ===== CONFIGURACIÓN OAUTH 2.0 =====
+    GOOGLE_CLIENT_ID: str = os.getenv('GOOGLE_CLIENT_ID', '')
+    GOOGLE_CLIENT_SECRET: str = os.getenv('GOOGLE_CLIENT_SECRET', '')
+    OAUTH_SECRET_KEY: str = os.getenv('SECRET_KEY', os.urandom(24).hex())
+    
+    # ===== CONFIGURACIÓN SERVIDOR WEB OAUTH =====
+    WEB_SERVER_HOST: str = os.getenv('WEB_SERVER_HOST', '0.0.0.0')
+    WEB_SERVER_PORT: int = int(os.getenv('WEB_SERVER_PORT', '5000'))
+    
     @classmethod
     def get_server_config(cls) -> dict:
         """Retorna la configuración del servidor como diccionario."""
