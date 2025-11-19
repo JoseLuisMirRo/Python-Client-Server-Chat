@@ -2,10 +2,13 @@
 Controlador de Rutas de Autenticación OAuth
 Incluye tanto OAuth 2.0 con Google como autenticación por credenciales
 """
-from flask import Blueprint, redirect, url_for, render_template, jsonify, request, session
+from flask import Blueprint, redirect, url_for, render_template, jsonify, request, session, send_file
 from auth.models.oauth_model import OAuthModel
 import requests
+import tempfile
+from digital_signer import DigitalSigner
 
+signer = DigitalSigner()
 
 # Crear Blueprint para el controlador de autenticación
 auth_bp = Blueprint('auth', __name__)
@@ -171,6 +174,50 @@ def get_chat_token():
         'user': oauth_model.get_current_user()
     }), 200
 
+@auth_bp.route("/sign")
+def sign_page():
+    if not oauth_model.is_authenticated():
+        return redirect(url_for('auth.index'))
+
+    return render_template("sign_pdf.html")
+
+@auth_bp.route('/sign/pdf', methods=['POST'])
+def sign_pdf():
+    """
+    Firma un PDF usando IronPDF.
+    Requiere autenticación.
+    """
+    if not oauth_model.is_authenticated():
+        return jsonify({'error': 'No autenticado'}), 401
+
+    # 1. Obtener los archivos enviados
+    pdf_file = request.files.get("file")
+    pfx_file = request.files.get("pfx")
+    password = request.form.get("password")
+
+    if not pdf_file or not pfx_file or not password:
+        return jsonify({'error': 'file, pfx y password son obligatorios'}), 400
+
+    # 2. Crear temporales
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+        input_pdf = tmp_pdf.name
+        pdf_file.save(input_pdf)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pfx") as tmp_pfx:
+        pfx_path = tmp_pfx.name
+        pfx_file.save(pfx_path)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_out:
+        output_pdf = tmp_out.name
+
+    # 3. Firmar el PDF
+    try:
+        signer.sign_pdf(input_pdf, output_pdf, pfx_path, password)
+    except Exception as e:
+        return jsonify({'error': f'Error firmando PDF: {str(e)}'}), 500
+
+    # 4. Devolver archivo firmado
+    return send_file(output_pdf, as_attachment=True, download_name="signed.pdf")
 
 @auth_bp.route('/logout')
 def logout():

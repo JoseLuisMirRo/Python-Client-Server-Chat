@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Firmar PDF</title>
+
+    <style>
+        /* === ESTILOS PROPORCIONADOS === */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            padding: 40px 35px;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .logo-container {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            color: white;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 28px;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: #999;
+            margin-bottom: 30px;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            color: #555;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        input[type="file"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e1e1e1;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+
+        input[type="file"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .error-message,
+        .success-message {
+            padding: 12px 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .error-message {
+            background: #fee;
+            border-left: 4px solid #f44;
+            color: #c33;
+        }
+
+        .success-message {
+            background: #efe;
+            border-left: 4px solid #4c4;
+            color: #3a3;
+        }
+
+        .security-badge {
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #e1e1e1;
+            text-align: center;
+        }
+
+        .security-badge p {
+            color: #999;
+            font-size: 12px;
+        }
+
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: none;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="login-container">
+        
+        <!-- LOGO -->
+        <div class="logo-container">
+            <div class="logo">📄</div>
+        </div>
+
+        <h1>Firmar PDF</h1>
+        <p class="subtitle">Sube tu documento y tu certificado PFX para firmarlo digitalmente</p>
+
+        <div id="errorBox" class="error-message"></div>
+        <div id="successBox" class="success-message"></div>
+
+        <form id="signForm" enctype="multipart/form-data">
+
+            <div class="form-group">
+                <label>Archivo PDF</label>
+                <input type="file" name="file" accept="application/pdf" required>
+            </div>
+
+            <div class="form-group">
+                <label>Certificado PFX</label>
+                <input type="file" name="pfx" accept=".pfx" required>
+            </div>
+
+            <div class="form-group">
+                <label>Contraseña del Certificado</label>
+                <input type="password" name="password" required>
+            </div>
+
+            <button class="btn-primary" type="submit">
+                Firmar PDF
+                <span id="loader" class="loader"></span>
+            </button>
+        </form>
+
+        <div class="security-badge">
+            <p>Firmado digitalmente con certificados X.509</p>
+        </div>
+
+    </div>
+
+    <script>
+        const form = document.getElementById("signForm");
+        const errorBox = document.getElementById("errorBox");
+        const successBox = document.getElementById("successBox");
+        const loader = document.getElementById("loader");
+
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            errorBox.style.display = "none";
+            successBox.style.display = "none";
+
+            loader.style.display = "inline-block";
+
+            const formData = new FormData(form);
+
+            try {
+                const response = await fetch("/sign/pdf", {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || "Error desconocido");
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "documento_firmado.pdf";
+                a.click();
+
+                window.URL.revokeObjectURL(url);
+
+                successBox.textContent = "✔ Documento firmado correctamente";
+                successBox.style.display = "block";
+
+            } catch (err) {
+                errorBox.textContent = "❌ " + err.message;
+                errorBox.style.display = "block";
+            }
+
+            loader.style.display = "none";
+        });
+    </script>
+
+</body>
+</html>
