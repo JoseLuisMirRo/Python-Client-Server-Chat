@@ -1,2 +1,24 @@
+# Dependencias del Chat Seguro con OAuth
+
+# Criptografía
 cryptography>=41.0.0
+
+# Terminal coloreada
 colorama>=0.4.6
+
+# Flask para servidor web OAuth
+Flask>=3.0.0
+Flask-Session>=0.5.0
+
+# OAuth 2.0
+requests>=2.31.0
+authlib>=1.2.0
+
+# WebSockets para frontend
+websockets>=12.0
+
+# Variables de entorno
+python-dotenv>=1.0.0
+
+# WSGI Server (opcional, para producción)
+gunicorn>=21.2.0

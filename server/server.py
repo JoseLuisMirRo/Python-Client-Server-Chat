@@ -55,15 +55,7 @@ class ChatServer:
         max_clients: int | None = None,
         enable_ssl: bool | None = None
     ) -> None:
-        """Inicializa el servidor de chat.
-
-        Args:
-            host: Dirección donde escuchar (usa Config.DEFAULT_HOST si es None).
-            port: Puerto (usa Config.DEFAULT_PORT si es None).
-            password: Contraseña requerida (usa Config.SERVER_PASSWORD si es None).
-            max_clients: Límite de clientes simultáneos (usa Config.MAX_CLIENTS si es None).
-            enable_ssl: Habilitar SSL/TLS (usa Config.ENABLE_SSL si es None).
-        """
+        """Inicializa el servidor de chat."""
         self.host = host or Config.DEFAULT_HOST
         self.port = port or Config.DEFAULT_PORT
         self.password = password or Config.SERVER_PASSWORD
@@ -91,7 +83,7 @@ class ChatServer:
         # Configurar SSL/TLS si está habilitado
         if self.enable_ssl:
             self.ssl_context = self._configurar_ssl()
-            self.server = base_server  # Mantenemos el socket base para accept
+            self.server = base_server
         else:
             self.server = base_server
             self.ssl_context = None
@@ -113,47 +105,36 @@ class ChatServer:
         if self.enable_ssl:
             logging.info(f"🔐 SSL/TLS habilitado (TLS 1.2+)")
         else:
-            logging.warning(f"⚠️  SSL/TLS deshabilitado - conexiones sin cifrado de transporte")
+            logging.warning(f"⚠️  SSL/TLS deshabilitado")
 
     def _configurar_ssl(self) -> ssl.SSLContext:
         """Configura el contexto SSL/TLS para el servidor."""
         try:
-            # Verificar que los certificados existan
             if not Config.SSL_CERT_PATH.exists():
                 logging.error(f"❌ Certificado SSL no encontrado: {Config.SSL_CERT_PATH}")
-                logging.info("💡 Genera certificados con: python scripts/generate_ssl_certificates.py")
                 raise FileNotFoundError(f"Certificado SSL no encontrado: {Config.SSL_CERT_PATH}")
             
             if not Config.SSL_KEY_PATH.exists():
                 logging.error(f"❌ Clave privada SSL no encontrada: {Config.SSL_KEY_PATH}")
-                logging.info("💡 Genera certificados con: python scripts/generate_ssl_certificates.py")
                 raise FileNotFoundError(f"Clave privada SSL no encontrada: {Config.SSL_KEY_PATH}")
             
-            # Crear contexto SSL
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            
-            # Configurar opciones de seguridad
-            context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1  # Deshabilitar TLS 1.0 y 1.1
+            context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
             context.minimum_version = ssl.TLSVersion.TLSv1_2
             
-            # Cargar certificado y clave privada
             context.load_cert_chain(
                 certfile=str(Config.SSL_CERT_PATH),
                 keyfile=str(Config.SSL_KEY_PATH)
             )
             
-            # Configurar cifrados seguros
             context.set_ciphers('ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS')
             
-            # Configurar verificación de clientes (si está habilitado)
             if Config.SSL_VERIFY_CLIENT and Config.SSL_CA_CERT_PATH:
                 context.verify_mode = ssl.CERT_REQUIRED
                 context.load_verify_locations(cafile=str(Config.SSL_CA_CERT_PATH))
-                logging.info("🔐 Verificación de certificados de cliente habilitada")
             else:
                 context.verify_mode = ssl.CERT_NONE
             
-            logging.debug(f"✅ Contexto SSL configurado correctamente")
             return context
             
         except Exception as e:
@@ -187,7 +168,7 @@ class ChatServer:
             else:
                 self.rsa_crypto.generar_par_claves(key_size=Config.RSA_KEY_SIZE)
                 self.rsa_crypto.guardar_claves(private_key_path, public_key_path)
-                logging.info(f"✅ Nuevas claves RSA generadas y guardadas en {public_key_path}")
+                logging.info(f"✅ Nuevas claves RSA generadas")
         except Exception as e:
             logging.error(f"❌ Error inicializando claves RSA: {e}")
             raise
@@ -207,7 +188,7 @@ class ChatServer:
                     mensaje_cifrado = client_rsa.cifrar(message)
                     client.send(f'{mensaje_cifrado}\n'.encode('utf-8'))
                 except Exception as e:
-                    logging.error(f"❌ Error enviando mensaje a {nickname}: {e}")
+                    logging.error(f"❌ Error enviando a {nickname}: {e}")
                     self.desconectar_cliente(client)
         except Exception as e:
             logging.error(f"❌ Error en broadcast: {e}")
@@ -216,82 +197,117 @@ class ChatServer:
         """Gestiona la sesión de un cliente."""
         nickname: str | None = None
         try:
+            # 1. Notificar que estamos listos para intercambiar claves
             client.send(b'PUBLIC_KEY_READY\n')
             
+            # 2. Solicitar clave pública del cliente
             client.send(b'CLIENT_PUBLIC_KEY\n')
-            client_public_key_data = client.recv(self.buffer_size)
-            import base64
-            client_public_key_pem = base64.b64decode(client_public_key_data.decode('utf-8').strip())
-            logging.debug("Clave pública del cliente recibida")
             
-            client.send(b'NICK\n')
-            nickname_cifrado = client.recv(self.buffer_size)
-            nickname = self.rsa_crypto.descifrar(nickname_cifrado.decode('utf-8'))
-
-            client.send(b'PASSWORD\n')
-            password_cifrado = client.recv(self.buffer_size)
-            recv_password = self.rsa_crypto.descifrar(password_cifrado.decode('utf-8'))
-
-            if recv_password != self.password:
+            # 3. Recibir clave pública del cliente (PEM completo en Base64)
+            client_public_key_b64 = client.recv(self.buffer_size).decode('utf-8').strip()
+            
+            # Decodificar: el cliente envía el PEM completo (con headers) en Base64
+            import base64
+            try:
+                client_public_key_pem = base64.b64decode(client_public_key_b64)
+                logging.debug(f"✅ Clave pública recibida ({len(client_public_key_pem)} bytes)")
+                logging.debug(f"📄 PEM: {client_public_key_pem[:50]}...")
+            except Exception as e:
+                logging.error(f"❌ Error decodificando clave pública Base64: {e}")
                 client.send(b'AUTH_FAILED\n')
                 client.close()
                 return
+            
+            # 4. Solicitar nickname
+            client.send(b'NICK\n')
+            nickname_cifrado = client.recv(self.buffer_size).decode('utf-8').strip()
+            nickname = self.rsa_crypto.descifrar(nickname_cifrado)
+            logging.debug(f"✅ Nickname descifrado: {nickname}")
 
-            client.send(b'AUTH_SUCCESS\n')
+            # 5. Solicitar contraseña
+            client.send(b'PASSWORD\n')
+            password_cifrado = client.recv(self.buffer_size).decode('utf-8').strip()
+            recv_password = self.rsa_crypto.descifrar(password_cifrado)
+
+            # 6. Verificar contraseña
+            if recv_password != self.password:
+                client.send(b'AUTH_FAILED\n')
+                logging.warning(f"⚠️  Autenticación fallida para {nickname}")
+                client.close()
+                return
+
+            # 7. Verificar capacidad del servidor
             with self.global_lock:
                 if len(self.clients) >= self.max_clients:
-                    client.send(b'SERVIDOR_LLENO')
+                    client.send(b'SERVIDOR_LLENO\n')
                     client.close()
                     return
                 self.clients[client] = (nickname, client_public_key_pem)
 
+            # 8. Confirmar autenticación exitosa
+            client.send(b'AUTH_SUCCESS\n')
             logging.info(f"👤 {nickname} se conectó desde {address}")
             self.broadcast(f'📢 {nickname} se unió al chat!', sender=None)
 
+            # 9. Loop principal de mensajes
             while True:
                 data = client.recv(self.buffer_size)
                 if not data:
                     break
 
-                raw = data.decode('utf-8')
+                raw = data.decode('utf-8').strip()
                 mensaje_descifrado = None
                 
-                try:
-                    parsed = json.loads(raw)
-                    if isinstance(parsed, dict) and all(k in parsed for k in ['cipher', 'hash', 'md5']):
-                        cipher = parsed['cipher']
-                        recv_hash = parsed['hash']
-                        recv_md5 = parsed['md5']
+                # Intentar parsear formato: cipher|hash|md5
+                if '|' in raw:
+                    parts = raw.split('|')
+                    if len(parts) == 3:
+                        cipher, recv_hash, recv_md5 = parts
                         
                         try:
                             mensaje_descifrado = self.rsa_crypto.descifrar(cipher)
+                            
+                            # Verificar integridad
+                            import hashlib
+                            calc_hash = hashlib.sha256(mensaje_descifrado.encode('utf-8')).hexdigest()
+                            calc_md5 = hashlib.md5(mensaje_descifrado.encode('utf-8')).hexdigest()
+                            
+                            if recv_hash != calc_hash or recv_md5 != calc_md5:
+                                logging.warning(f"⚠️  Hash inválido de {nickname}")
+                                continue
+                            
+                            logging.debug(f"✅ Mensaje verificado (MD5: {recv_md5[:8]}...)")
+                            
                         except Exception as e:
-                            logging.warning(f"❌ No se pudo descifrar mensaje de {nickname}: {e}")
+                            logging.warning(f"❌ Error descifrando de {nickname}: {e}")
                             continue
-
-                        import hashlib
-                        calc_hash = hashlib.sha256(mensaje_descifrado.encode('utf-8')).hexdigest()
-                        calc_md5 = hashlib.md5(mensaje_descifrado.encode('utf-8')).hexdigest()
-                        
-                        if recv_hash != calc_hash or recv_md5 != calc_md5:
-                            logging.warning(f"⚠️ Hash inválido de {nickname}. Mensaje descartado.")
-                            continue
-                        
-                        logging.debug(f"🔒 MD5 verificado: {recv_md5}")
                     else:
-                        mensaje_descifrado = self.rsa_crypto.descifrar(raw)
-                except json.JSONDecodeError:
+                        # Formato incorrecto, intentar descifrar directamente
+                        try:
+                            mensaje_descifrado = self.rsa_crypto.descifrar(raw)
+                        except Exception as e:
+                            logging.warning(f"❌ No se pudo descifrar de {nickname}: {e}")
+                            continue
+                else:
+                    # Sin pipes, intentar descifrar directamente (retrocompatibilidad)
                     try:
-                        mensaje_descifrado = self.rsa_crypto.descifrar(raw)
-                    except Exception as e:
-                        logging.warning(f"❌ No se pudo descifrar mensaje de {nickname}: {e}")
-                        continue
+                        # Intentar JSON (formato antiguo)
+                        parsed = json.loads(raw)
+                        if isinstance(parsed, dict) and 'cipher' in parsed:
+                            cipher = parsed['cipher']
+                            mensaje_descifrado = self.rsa_crypto.descifrar(cipher)
+                        else:
+                            mensaje_descifrado = self.rsa_crypto.descifrar(raw)
+                    except json.JSONDecodeError:
+                        try:
+                            mensaje_descifrado = self.rsa_crypto.descifrar(raw)
+                        except Exception as e:
+                            logging.warning(f"❌ No se pudo descifrar de {nickname}: {e}")
+                            continue
 
-                if mensaje_descifrado is None:
-                    continue
-
-                logging.info(f"💬 {nickname}: {mensaje_descifrado}")
-                self.broadcast(f'👤 {nickname}: {mensaje_descifrado}', sender=client)
+                if mensaje_descifrado:
+                    logging.info(f"💬 {nickname}: {mensaje_descifrado}")
+                    self.broadcast(f'👤 {nickname}: {mensaje_descifrado}', sender=client)
 
         except Exception as e:
             logging.error(f"❌ Error con {nickname or 'Cliente desconocido'}: {e}")
@@ -308,7 +324,7 @@ class ChatServer:
                     client.close()
                 except Exception:
                     pass
-                logging.info(f"🚪 {nickname} se desconectó del chat")
+                logging.info(f"🚪 {nickname} se desconectó")
                 self.broadcast(f'📢 {nickname} abandonó el chat', sender=None)
 
     def iniciar(self) -> None:
@@ -321,20 +337,13 @@ class ChatServer:
             while True:
                 client, address = self.server.accept()
                 
-                # Envolver el socket con SSL si está habilitado
+                # Envolver con SSL si está habilitado
                 if self.enable_ssl and self.ssl_context:
                     try:
                         client = self.ssl_context.wrap_socket(client, server_side=True)
-                        logging.debug(f"🔐 Conexión SSL establecida con {address}")
+                        logging.debug(f"🔐 Conexión SSL con {address}")
                     except ssl.SSLError as e:
                         logging.warning(f"⚠️  Error SSL con {address}: {e}")
-                        try:
-                            client.close()
-                        except:
-                            pass
-                        continue
-                    except Exception as e:
-                        logging.error(f"❌ Error envolviendo socket con SSL: {e}")
                         try:
                             client.close()
                         except:
@@ -344,9 +353,6 @@ class ChatServer:
                 self.thread_pool.submit(self.manejar_cliente, client, address)
         except KeyboardInterrupt:
             logging.info("🛑 Servidor detenido")
-        except Exception as e:
-            logging.error(f"❌ Error crítico del servidor: {e}")
-            logging.debug(traceback.format_exc())
         finally:
             self.thread_pool.shutdown(wait=True)
             self.server.close()
@@ -366,11 +372,9 @@ def main() -> None:
     parser.add_argument('--max-clients', type=int, help=f'Máximo de clientes (default: {Config.MAX_CLIENTS})')
     parser.add_argument('--enable-ssl', action='store_true', help='Habilitar SSL/TLS')
     parser.add_argument('--disable-ssl', action='store_true', help='Deshabilitar SSL/TLS')
-    parser.add_argument('--show-config', action='store_true', help='Mostrar configuración y salir')
     
     args = parser.parse_args()
     
-    # Determinar si SSL está habilitado
     enable_ssl = None
     if args.enable_ssl:
         enable_ssl = True

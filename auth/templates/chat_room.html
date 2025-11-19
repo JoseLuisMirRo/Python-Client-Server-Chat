@@ -3,125 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat Grupal</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 60px;
-            max-width: 600px;
-            width: 100%;
-            text-align: center;
-        }
-
-        h1 {
-            color: #333;
-            font-size: 3rem;
-            margin-bottom: 20px;
-            font-weight: 700;
-        }
-
-        .user-info {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 20px;
-            margin: 30px 0;
-        }
-
-        .user-info p {
-            color: #666;
-            font-size: 1.1rem;
-            margin: 10px 0;
-        }
-
-        .user-info strong {
-            color: #333;
-        }
-
-        .description {
-            color: #666;
-            font-size: 1.2rem;
-            line-height: 1.6;
-            margin: 20px 0;
-        }
-
-        .logout-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 15px 40px;
-            font-size: 1.1rem;
-            border-radius: 50px;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-block;
-            margin-top: 30px;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .logout-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
-        }
-
-        .logout-btn:active {
-            transform: translateY(0);
-        }
-
-        .icon {
-            font-size: 4rem;
-            margin-bottom: 20px;
-        }
-
-        @media (max-width: 600px) {
-            .container {
-                padding: 40px 30px;
-            }
-
-            h1 {
-                font-size: 2rem;
-            }
-
-            .description {
-                font-size: 1rem;
-            }
-        }
-    </style>
+    <title>Chat Seguro - Cifrado End-to-End</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}">
 </head>
 <body>
-    <div class="container">
-        <div class="icon">💬</div>
-        <h1>Chat Grupal</h1>
-        
-        <div class="user-info">
-            <p><strong>Bienvenido:</strong> {{ user.name }}</p>
-            <p><strong>Email:</strong> {{ user.email }}</p>
+    <div class="chat-container">
+        <!-- Header del Chat -->
+        <div class="chat-header">
+            <div class="header-left">
+                <h1>🔐 Chat Seguro</h1>
+                <div class="status-badge">
+                    <span class="status-indicator disconnected" id="statusIndicator"></span>
+                    <span id="statusText">Desconectado</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="user-info">
+                    <span>👤</span>
+                    <span id="currentUser">{{ user.name }}</span>
+                </div>
+                <button class="logout-btn" onclick="window.location.href='/logout'">
+                    🚪 Salir
+                </button>
+            </div>
         </div>
 
-        <p class="description">
-            Has iniciado sesión correctamente con Google OAuth 2.0.
-            <br><br>
-            La interfaz del chat se implementará próximamente.
-        </p>
+        <!-- Sección de Login (Dentro del Chat) -->
+        <div id="loginSection">
+            <div class="login-box">
+                <h2>Conectar al Chat</h2>
+                <p>Ingresa tu nickname y la contraseña del servidor</p>
+                
+                <div class="form-group">
+                    <label for="nicknameInput">Nickname</label>
+                    <input 
+                        type="text" 
+                        id="nicknameInput" 
+                        placeholder="Tu nickname"
+                        value="{{ user.name.split()[0] if user.name else '' }}"
+                        autocomplete="nickname">
+                </div>
 
-        <a href="/logout" class="logout-btn">Cerrar Sesión</a>
+                <div class="form-group">
+                    <label for="passwordInput">Contraseña del Servidor</label>
+                    <input 
+                        type="password" 
+                        id="passwordInput" 
+                        placeholder="Contraseña del chat"
+                        autocomplete="current-password">
+                </div>
+
+                <button class="btn-primary" id="loginBtn">
+                    🔐 Conectar al Chat
+                </button>
+
+                <div style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 10px;">
+                    <p style="font-size: 0.9rem; color: #004085; text-align: center;">
+                        🔒 <strong>Contraseña por defecto:</strong> <code style="background: white; padding: 2px 8px; border-radius: 3px; color: #d63384;">secreto</code>
+                    </p>
+                    <p style="font-size: 0.8rem; color: #666; text-align: center; margin-top: 8px;">
+                        (Configurable en el servidor)
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sección de Chat (Inicialmente oculta) -->
+        <div id="chatSection">
+            <div class="chat-main">
+                <!-- Contenedor de Mensajes -->
+                <div class="messages-container" id="messages">
+                    <!-- Los mensajes se agregarán dinámicamente aquí -->
+                </div>
+            </div>
+
+            <!-- Input de Mensaje -->
+            <div class="message-input-container">
+                <textarea 
+                    class="message-input" 
+                    id="messageInput" 
+                    placeholder="Escribe tu mensaje... (Enter para enviar)"
+                    rows="1"></textarea>
+                <button class="send-btn" id="sendBtn">
+                    📤
+                </button>
+            </div>
+        </div>
     </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/chat-client.js') }}"></script>
+
+    <!-- Información de Usuario (desde Flask) -->
+    <script>
+        // Datos del usuario autenticado con OAuth
+        window.currentUser = {
+            name: "{{ user.name }}",
+            email: "{{ user.email }}",
+            picture: "{{ user.picture }}"
+        };
+        console.log('👤 Usuario autenticado:', window.currentUser);
+    </script>
 </body>
 </html>

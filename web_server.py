@@ -7,6 +7,7 @@ Este servidor proporciona:
 - Autenticación con Google OAuth
 - Gestión de sesiones de usuario
 - Token de acceso para el chat
+- Archivos estáticos (CSS, JS) para la interfaz del chat
 """
 import os
 import sys
@@ -30,10 +31,12 @@ def create_web_app():
     Returns:
         Aplicación Flask configurada
     """
-    # Crear aplicación Flask con configuración de templates
+    # Crear aplicación Flask con configuración de templates y static
     app = Flask(
         __name__,
-        template_folder='auth/templates'
+        template_folder='auth/templates',
+        static_folder='auth/static',
+        static_url_path='/static'
     )
     
     # ===== CONFIGURACIÓN DE LA APLICACIÓN =====
@@ -88,8 +91,9 @@ def main():
     print("📋 INSTRUCCIONES:")
     print("   1. Abre http://localhost:5000 en tu navegador")
     print("   2. Inicia sesión con tu cuenta de Google")
-    print("   3. Copia el token mostrado")
-    print("   4. Úsalo en el cliente de chat cuando se solicite")
+    print("   3. Accede al chat directamente desde el navegador")
+    print("   4. Recuerda iniciar también el servidor WebSocket:")
+    print("      → python websocket_server.py")
     print("="*70 + "\n")
     
     # Ejecutar la aplicación en modo debug
