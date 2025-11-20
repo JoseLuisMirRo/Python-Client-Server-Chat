@@ -1,78 +1,237 @@
+"""
+Cliente de Chat con cifrado RSA.
+Permite conectarse a un servidor de chat, autenticarse y enviar/recibir mensajes.
+"""
 import socket
+import ssl
 import threading
 import traceback
 import time
+import os
+import sys
+import hashlib
+import json
+from pathlib import Path
 
-# ===============================
-# Cliente de Chat
-# ===============================
-# Este cliente permite conectarse a un servidor de chat, autenticarse y enviar/recibir mensajes en tiempo real.
-# El código utiliza hilos para gestionar la recepción y el envío de mensajes de forma simultánea.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from crypto.rsa_crypto import RSACrypto
+from cryptography.hazmat.primitives import serialization
+from config import Config
+
 
 class ChatClient:
-    """
-    Clase que representa un cliente de chat.
-    Permite conectarse a un servidor, autenticarse y enviar/recibir mensajes.
-    """
-    def __init__(self, host='localhost', port=0):
-        """
-        Inicializa el cliente de chat.
-        - Solicita el host/IP del servidor si no se proporciona.
-        - Solicita el puerto si no se proporciona.
-        - Solicita el nombre de usuario.
-        - Establece la conexión con el servidor.
-        """
-        # Solicitar host si no se proporciona explícitamente
-        if host in (None, '', 'localhost'):
-            ingresado = input("Ingrese IP o host del servidor (Enter para localhost): ").strip()
-            if ingresado:
-                host = ingresado
-
-        # Solicitar puerto si no se proporciona
-        if port == 0:
-            port = int(input("Ingrese el puerto del servidor: "))
-        # Configurar socket
-        self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect((host, port))
-        # Solicitar nickname
-        self.nickname = input("Elija su nombre de usuario: ")
+    """Cliente de chat con cifrado RSA."""
+    
+    def __init__(self, host: str | None = None, port: int | None = None, enable_ssl: bool | None = None):
+        """Inicializa el cliente de chat con un flujo amigable."""
+        print("\n" + "="*60)
+        print("    🎯 BIENVENIDO AL CHAT SEGURO CON CIFRADO RSA")
+        print("="*60)
+        
+        # Determinar si SSL está habilitado
+        self.enable_ssl = enable_ssl if enable_ssl is not None else Config.ENABLE_SSL
+        
+        print("\n📡 PASO 1: Configuración de Conexión")
+        print("-" * 60)
+        
+        if host is None:
+            print("¿A qué servidor deseas conectarte?")
+            ingresado = input(f"  → IP del servidor (Enter para {Config.DEFAULT_HOST}): ").strip()
+            host = ingresado if ingresado else Config.DEFAULT_HOST
+        
+        print(f"  ✓ Servidor: {host}")
+        
+        if port is None:
+            print("\n¿En qué puerto está escuchando el servidor?")
+            port_input = input(f"  → Puerto (Enter para {Config.DEFAULT_PORT}): ").strip()
+            port = int(port_input) if port_input else Config.DEFAULT_PORT
+        
+        print(f"  ✓ Puerto: {port}")
+        
+        # Guardar host para el hostname SSL
+        self.server_host = host
+        
+    
+        print("\n🔐 PASO 2: Configuración de Cifrado RSA")
+        print("-" * 60)
+        print("El cifrado RSA garantiza que tus mensajes sean privados y seguros.")
+        print()
+        
+        print(f"  → Generando tu par de claves RSA ({Config.RSA_KEY_SIZE} bits)...")
+        self.rsa_crypto = RSACrypto()
+        self.rsa_crypto.generar_par_claves(key_size=Config.RSA_KEY_SIZE)
+        print("  ✓ Tus claves RSA han sido generadas correctamente")
+        print("    • Estas claves solo existen en memoria (no se guardan en disco)")
+        print("    • Se usarán para cifrar/descifrar tus mensajes")
+        
+        print("\n  → Necesitas la clave pública del servidor para autenticarte")
+        self.server_rsa = RSACrypto()
+        key_path_input = input(f"  → Ruta del archivo (Enter para '{Config.SERVER_PUBLIC_KEY_PATH.name}'): ").strip()
+        key_path = key_path_input if key_path_input else str(Config.SERVER_PUBLIC_KEY_PATH)
+        
+        possible_paths = [
+            Path(key_path),
+            Config.BASE_DIR / key_path,
+            Path(__file__).parent / key_path,
+        ]
+        
+        key_found = False
+        try:
+            for path in possible_paths:
+                if path.exists():
+                    with open(path, 'rb') as f:
+                        public_key_pem = f.read()
+                    self.server_rsa.cargar_clave_publica(public_key_pem)
+                    print(f"  ✓ Clave pública del servidor cargada desde: {path}")
+                    key_found = True
+                    break
+            
+            if not key_found:
+                print(f"\n  ✗ Archivo no encontrado: {key_path}")
+                print("    Asegúrate de que el servidor esté ejecutándose.")
+                print("    El servidor genera automáticamente 'server_public_key.pem' al iniciar.")
+                raise FileNotFoundError(f"No se encontró la clave pública en: {key_path}")
+        except Exception as e:
+            print(f"  ✗ Error: {e}")
+            raise
+        
+        print("\n👤 PASO 3: Tus Credenciales")
+        print("-" * 60)
+        
+        print("Para conectarte, necesitas conocer la contraseña del servidor.")
+        self.server_password = input("  → Contraseña del servidor: ").strip()
+        
+        print("\nElige un nombre de usuario para el chat.")
+        self.nickname = input("  → Tu nombre de usuario: ").strip()
+        
+        print(f"\n  ✓ Configurado como: {self.nickname}")
+        
+        print("\n🔌 PASO 4: Estableciendo Conexión")
+        print("-" * 60)
+        protocol = "TLS" if self.enable_ssl else "TCP"
+        print(f"  → Conectando a {host}:{port} mediante {protocol}...")
+        
+        try:
+            # Crear socket base
+            base_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            base_socket.connect((host, port))
+            
+            # Envolver con SSL si está habilitado
+            if self.enable_ssl:
+                ssl_context = self._configurar_ssl_cliente()
+                self.client = ssl_context.wrap_socket(base_socket, server_hostname=host)
+                print("  ✓ Conexión TLS establecida")
+                print(f"  ✓ Protocolo: {self.client.version()}")
+                print(f"  ✓ Cifrado: {self.client.cipher()[0]}")
+            else:
+                self.client = base_socket
+                print("  ✓ Conexión TCP establecida")
+                print("  ⚠️  Advertencia: Conexión sin cifrado de transporte SSL/TLS")
+            
+            print("  ✓ Iniciando protocolo de cifrado RSA...")
+        except ssl.SSLError as e:
+            print(f"  ✗ Error SSL/TLS: {e}")
+            print("  💡 Verifica que el servidor tenga certificados válidos")
+            raise
+        except Exception as e:
+            print(f"  ✗ Error de conexión: {e}")
+            raise
+        
         self.authenticated = False
         self.running = True
+        self.buffer_size = Config.BUFFER_SIZE
+        
+        print("\n" + "="*60)
 
-    
+    def _configurar_ssl_cliente(self) -> ssl.SSLContext:
+        """Configura el contexto SSL/TLS para el cliente."""
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        
+        # Para certificados autofirmados en desarrollo
+        # En producción, deberías validar el certificado correctamente
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        
+        # Configurar versión mínima de TLS
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        
+        # Si deseas usar verificación de certificados en producción:
+        # context.check_hostname = True
+        # context.verify_mode = ssl.CERT_REQUIRED
+        # context.load_verify_locations(cafile='path/to/ca-cert.pem')
+        
+        return context
 
     def recibir(self):
-        """
-        Recibe mensajes del servidor de chat.
-        - Gestiona la autenticación (nickname y contraseña).
-        - Imprime los mensajes recibidos.
-        - Si la conexión se pierde o la autenticación falla, termina el cliente.
-        """
+        """Recibe mensajes del servidor de chat."""
+        buffer = ""
         while self.running:
             try:
-                mensaje = self.client.recv(1024).decode('utf-8')
-                if not mensaje:
+                data = self.client.recv(self.buffer_size)
+                if not data:
                     print("🔌 Conexión cerrada por el servidor.")
                     self.running = False
                     break
-                # Manejo de autenticación
-                if mensaje == 'NICK':
-                    self.client.send(self.nickname.encode('utf-8'))
-                elif mensaje == 'PASSWORD':
-                    contrasena = input("Ingrese la contraseña del servidor: ")
-                    self.client.send(contrasena.encode('utf-8'))
-                elif mensaje == 'AUTH_FAILED':
-                    print("❌ Autenticación fallida. Saliendo...")
-                    self.running = False
-                    self.client.close()
-                    break
-                elif mensaje == 'AUTH_SUCCESS':
-                    print("✅ Autenticación exitosa!")
-                    self.authenticated = True
+                
+                buffer += data.decode('utf-8')
+                
+                while '\n' in buffer:
+                    mensaje, buffer = buffer.split('\n', 1)
+                    mensaje = mensaje.strip()
                     
-                else:
-                    # Imprimir mensajes tal cual
-                    print(mensaje)
+                    if not mensaje:
+                        continue
+                    
+                    if mensaje == 'PUBLIC_KEY_READY':
+                        print("🔒 Servidor listo para autenticación cifrada")
+                    
+                    elif mensaje == 'CLIENT_PUBLIC_KEY':
+                        import base64
+                        my_public_key_pem = self.rsa_crypto.public_key.public_bytes(
+                            encoding=serialization.Encoding.PEM,
+                            format=serialization.PublicFormat.SubjectPublicKeyInfo
+                        )
+                        my_public_key_b64 = base64.b64encode(my_public_key_pem).decode('utf-8')
+                        self.client.send(f'{my_public_key_b64}\n'.encode('utf-8'))
+                        print("🔑 Tu clave pública enviada al servidor")
+                    
+                    elif mensaje == 'NICK':
+                        print("  → Enviando nombre de usuario cifrado...")
+                        nickname_cifrado = self.server_rsa.cifrar(self.nickname)
+                        self.client.send(nickname_cifrado.encode('utf-8'))
+                    
+                    elif mensaje == 'PASSWORD':
+                        print("  → Enviando contraseña cifrada...")
+                        contrasena_cifrada = self.server_rsa.cifrar(self.server_password)
+                        self.client.send(contrasena_cifrada.encode('utf-8'))
+                    
+                    elif mensaje == 'AUTH_FAILED':
+                        print("❌ Autenticación fallida. Saliendo...")
+                        self.running = False
+                        self.client.close()
+                        break
+                    
+                    elif mensaje == 'AUTH_SUCCESS':
+                        print("\n" + "="*60)
+                        print("  ✅ ¡AUTENTICACIÓN EXITOSA!")
+                        print("="*60)
+                        print("\n💬 Ya puedes escribir mensajes.")
+                        print("   • Escribe tu mensaje y presiona Enter para enviarlo")
+                        print(f"   • Cifrado de aplicación: RSA-{Config.RSA_KEY_SIZE}")
+                        if self.enable_ssl:
+                            print(f"   • Cifrado de transporte: TLS (capa adicional de seguridad)")
+                        print("   • Presiona Ctrl+C para salir\n")
+                        print("-" * 60 + "\n")
+                        self.authenticated = True
+                        
+                    else:
+                        try:
+                            mensaje_descifrado = self.rsa_crypto.descifrar(mensaje)
+                            print(mensaje_descifrado)
+                        except Exception as e:
+                            print(f"[Sin cifrar] {mensaje}")
+            
             except Exception as e:
                 print(f"❌ Error al recibir mensaje: {e}")
                 traceback.print_exc()
@@ -84,23 +243,34 @@ class ChatClient:
                 break
 
     def escribir(self):
-        """
-        Envía mensajes al servidor de chat.
-        - Espera hasta que el usuario esté autenticado.
-        - Permite al usuario escribir mensajes y los envía al servidor.
-        - Si ocurre un error o se pierde la conexión, termina el cliente.
-        """
+        """Envía mensajes al servidor de chat."""
         while self.running:
             try:
-                # Esperar hasta estar autenticado
                 if not self.authenticated:
-                    time.sleep(0.1)
+                    time.sleep(Config.CLIENT_RECEIVE_TIMEOUT)
                     continue
-                # Leer y enviar mensaje
+                
                 mensaje = input()
                 if not self.running:
                     break
-                self.client.send(mensaje.encode('utf-8'))
+                
+                try:
+                    mensaje_hash = hashlib.sha256(mensaje.encode('utf-8')).hexdigest()
+                    mensaje_md5 = hashlib.md5(mensaje.encode('utf-8')).hexdigest()
+                    print(f"\n🔒 MD5 del mensaje enviado: {mensaje_md5}")
+                except Exception:
+                    mensaje_hash = ''
+                    mensaje_md5 = ''
+
+                mensaje_cifrado = self.server_rsa.cifrar(mensaje)
+
+                payload = json.dumps({
+                    'cipher': mensaje_cifrado,
+                    'hash': mensaje_hash,
+                    'md5': mensaje_md5
+                })
+                self.client.send(payload.encode('utf-8'))
+            
             except Exception as e:
                 print(f"❌ Error al enviar mensaje: {e}")
                 self.running = False
@@ -111,37 +281,49 @@ class ChatClient:
                 break
 
     def iniciar(self):
-        """
-        Inicia el cliente de chat.
-        - Crea y lanza los hilos para recibir y enviar mensajes.
-        - Espera a que el usuario termine o se pierda la conexión.
-        """
-        # Hilo para recibir mensajes
+        """Inicia el cliente de chat."""
         hilo_recepcion = threading.Thread(target=self.recibir)
         hilo_recepcion.daemon = True
         hilo_recepcion.start()
-        # Hilo para escribir mensajes
+        
         hilo_escritura = threading.Thread(target=self.escribir)
         hilo_escritura.daemon = True
         hilo_escritura.start()
-        # Esperar a que los hilos terminen
+        
         while self.running:
-            time.sleep(0.1)
-        # Esperar a que los hilos terminen si running se vuelve False
+            time.sleep(Config.CLIENT_RECEIVE_TIMEOUT)
+        
         hilo_recepcion.join(timeout=1)
         hilo_escritura.join(timeout=1)
 
+
 def main():
-    """
-    Función principal para iniciar el cliente de chat.
-    """
+    """Función principal para iniciar el cliente de chat."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Cliente de chat con cifrado RSA y SSL/TLS')
+    parser.add_argument('--host', type=str, help=f'Host del servidor (default: {Config.DEFAULT_HOST})')
+    parser.add_argument('--port', type=int, help=f'Puerto del servidor (default: {Config.DEFAULT_PORT})')
+    parser.add_argument('--enable-ssl', action='store_true', help='Habilitar SSL/TLS')
+    parser.add_argument('--disable-ssl', action='store_true', help='Deshabilitar SSL/TLS')
+    
+    args = parser.parse_args()
+    
+    # Determinar si SSL está habilitado
+    enable_ssl = None
+    if args.enable_ssl:
+        enable_ssl = True
+    elif args.disable_ssl:
+        enable_ssl = False
+    
     try:
-        cliente = ChatClient()
+        cliente = ChatClient(host=args.host, port=args.port, enable_ssl=enable_ssl)
         cliente.iniciar()
     except KeyboardInterrupt:
         print("\n👋 Saliendo del chat...")
     except Exception as e:
         print(f"❌ Error crítico: {e}")
+
 
 if __name__ == "__main__":
     main()

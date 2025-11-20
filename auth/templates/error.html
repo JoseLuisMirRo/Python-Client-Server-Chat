@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - Chat Seguro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .error-container {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .error-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #dc3545;
+            font-size: 28px;
+            margin-bottom: 15px;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #dc3545;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .error-message h3 {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .error-message p {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .error-detail {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #666;
+            text-align: left;
+            margin-top: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .actions {
+            margin-top: 25px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #666;
+            border: 2px solid #e1e1e1;
+        }
+
+        .btn-secondary:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .help-text {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e1e1e1;
+            color: #999;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-icon">❌</div>
+        <h1>Error de Autenticación</h1>
+
+        <div class="error-message">
+            <h3>No se pudo completar la autenticación</h3>
+            <p>{{ error if error else 'Ocurrió un error inesperado durante el proceso de autenticación con Google.' }}</p>
+            
+            {% if error_detail %}
+            <div class="error-detail">
+                {{ error_detail }}
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-primary" onclick="window.location.href='/'">
+                🔄 Intentar de Nuevo
+            </button>
+            <button class="btn btn-secondary" onclick="window.history.back()">
+                ← Volver
+            </button>
+        </div>
+
+        <div class="help-text">
+            <p>Si el problema persiste, verifica:</p>
+            <p>✓ Credenciales OAuth configuradas correctamente</p>
+            <p>✓ URIs de redirección autorizadas en Google Cloud Console</p>
+        </div>
+    </div>
+</body>
+</html>
